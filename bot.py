@@ -1,6 +1,10 @@
 import os
 import logging
 
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -9,37 +13,60 @@ from telegram.ext import (
     ContextTypes,
 )
 
+import uvicorn
+
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
+PORT = int(os.getenv("PORT", "10000"))
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")
+
+telegram_app = Application.builder().token(TOKEN).build()
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
-            InlineKeyboardButton("⚽ Matchs du jour", callback_data="matches"),
-            InlineKeyboardButton("📊 Analyse", callback_data="analysis")
+            InlineKeyboardButton(
+                "⚽ Matchs du jour",
+                callback_data="matches"
+            ),
+            InlineKeyboardButton(
+                "📊 Analyse",
+                callback_data="analysis"
+            )
         ],
         [
-            InlineKeyboardButton("🎯 Buteurs", callback_data="scorers"),
-            InlineKeyboardButton("⚽ Buts", callback_data="goals")
+            InlineKeyboardButton(
+                "🎯 Buteurs",
+                callback_data="scorers"
+            ),
+            InlineKeyboardButton(
+                "⚽ Buts",
+                callback_data="goals"
+            )
         ],
         [
-            InlineKeyboardButton("🌦️ Météo", callback_data="weather"),
-            InlineKeyboardButton("📈 Probabilités", callback_data="probabilities")
+            InlineKeyboardButton(
+                "🌦️ Météo",
+                callback_data="weather"
+            ),
+            InlineKeyboardButton(
+                "📈 Probabilités",
+                callback_data="probabilities"
+            )
         ]
     ]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
         "⚽ SPORT ANALYZER\n\n"
         "Analyse football et statistiques.\n\n"
         "Choisis une option :",
-        reply_markup=reply_markup
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
@@ -59,13 +86,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def matches(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "⚽ MATCHS DU JOUR\n\n"
-        "Le module football sera connecté prochainement.\n\n"
-        "Il affichera :\n"
-        "• Matchs du jour\n"
-        "• Horaires\n"
-        "• Compétitions\n"
-        "• Équipes\n"
-        "• Cotes"
+        "Le module football sera connecté prochainement."
     )
 
 
@@ -88,7 +109,10 @@ async def analyse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     query = update.callback_query
     await query.answer()
 
@@ -109,11 +133,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "probabilities":
         text = (
-            "📈 Probabilités\n\n"
-            "Le moteur calculera notamment :\n"
-            "1 : victoire équipe domicile\n"
+            "📈 PROBABILITÉS\n\n"
+            "Le moteur calculera :\n\n"
+            "1 : victoire domicile\n"
             "X : match nul\n"
-            "2 : victoire équipe extérieure\n"
+            "2 : victoire extérieur\n"
             "Over / Under\n"
             "BTTS\n"
             "Double chance\n"
@@ -127,24 +151,80 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text)
 
 
-def main():
+async def webhook(request: Request):
+    try:
+        data = await request.json()
+
+        update = Update.de_json(
+            data,
+            telegram_app.bot
+        )
+
+        await telegram_app.process_update(update)
+
+        return JSONResponse({"ok": True})
+
+    except Exception as error:
+        logging.exception("Erreur webhook : %s", error)
+        return JSONResponse(
+            {"ok": False},
+            status_code=500
+        )
+
+
+async def health(request: Request):
+    return JSONResponse({
+        "status": "ok",
+        "bot": "sport-analyzer"
+    })
+
+
+async def startup():
     if not TOKEN:
-        raise ValueError("La variable TELEGRAM_TOKEN est absente.")
+        raise RuntimeError(
+            "La variable TELEGRAM_TOKEN est absente."
+        )
 
-    application = Application.builder().token(TOKEN).build()
+    if not RENDER_URL:
+        raise RuntimeError(
+            "La variable RENDER_EXTERNAL_URL est absente."
+        )
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("match", matches))
-    application.add_handler(CommandHandler("analyse", analyse))
-    application.add_handler(
-        CallbackQueryHandler(button_handler)
+    await telegram_app.initialize()
+    await telegram_app.start()
+
+    webhook_url = f"{RENDER_URL}/telegram"
+
+    await telegram_app.bot.set_webhook(
+        url=webhook_url
     )
 
-    print("Bot démarré")
+    logging.info(
+        "Webhook Telegram configuré : %s",
+        webhook_url
+    )
 
-    application.run_polling()
+
+async def shutdown():
+    await telegram_app.bot.delete_webhook()
+
+    await telegram_app.stop()
+    await telegram_app.shutdown()
+
+
+app = Starlette(
+    routes=[
+        ("/telegram", webhook),
+        ("/health", health),
+    ],
+    on_startup=[startup],
+    on_shutdown=[shutdown],
+)
 
 
 if __name__ == "__main__":
-    main()
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=PORT
+    )
