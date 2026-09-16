@@ -1,224 +1,132 @@
 import os
-import logging
+from contextlib import asynccontextmanager
 
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-)
-
+from starlette.routing import Route
 import uvicorn
 
-
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 PORT = int(os.getenv("PORT", "10000"))
 RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")
 
-telegram_app = Application.builder().token(TOKEN).build()
+
+telegram_app = None
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "⚽ Matchs du jour",
-                callback_data="matches"
-            ),
-            InlineKeyboardButton(
-                "📊 Analyse",
-                callback_data="analysis"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🎯 Buteurs",
-                callback_data="scorers"
-            ),
-            InlineKeyboardButton(
-                "⚽ Buts",
-                callback_data="goals"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🌦️ Météo",
-                callback_data="weather"
-            ),
-            InlineKeyboardButton(
-                "📈 Probabilités",
-                callback_data="probabilities"
-            )
-        ]
-    ]
-
     await update.message.reply_text(
-        "⚽ SPORT ANALYZER\n\n"
-        "Analyse football et statistiques.\n\n"
-        "Choisis une option :",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        "🤖 Sport Analyzer Bot\n\n"
+        "Bot connecté.\n\n"
+        "Commandes disponibles :\n"
+        "/start - Démarrer\n"
+        "/help - Aide\n"
+        "/match - Matchs du jour\n"
+        "/analyse - Analyse d'un match\n"
+        "/buteur - Buteurs\n"
+        "/buts - Probabilités de buts\n"
+        "/probabilite - Probabilités"
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Commandes disponibles :\n\n"
-        "/start\n"
-        "/match\n"
-        "/analyse\n"
-        "/buteur\n"
-        "/buts\n"
-        "/probabilite\n"
-        "/miTemps"
+        "📊 Sport Analyzer\n\n"
+        "Analyse sportive automatisée.\n\n"
+        "Utilise /match pour voir les matchs du jour."
     )
 
 
-async def matches(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "⚽ MATCHS DU JOUR\n\n"
-        "Le module football sera connecté prochainement."
+        "⚽ Matchs du jour\n\n"
+        "Le module des matchs sera connecté à l'API football prochainement."
     )
 
 
-async def analyse(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📊 ANALYSE\n\n"
-        "Le moteur analysera :\n"
-        "• Forme récente\n"
-        "• Classement\n"
-        "• Attaque\n"
-        "• Défense\n"
-        "• Formations\n"
-        "• Absents\n"
-        "• Buteurs\n"
-        "• Passeurs\n"
-        "• Penalties\n"
-        "• Météo\n"
-        "• Historique\n"
-        "• Statistiques avancées"
+        "📊 Analyse\n\n"
+        "Le moteur d'analyse sera bientôt connecté aux données football."
     )
-
-
-async def button_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "matches":
-        text = "⚽ Matchs du jour\n\nModule en préparation."
-
-    elif query.data == "analysis":
-        text = "📊 Analyse\n\nSélectionne ensuite un match."
-
-    elif query.data == "scorers":
-        text = "🎯 Buteurs\n\nModule en préparation."
-
-    elif query.data == "goals":
-        text = "⚽ Analyse des buts\n\nModule en préparation."
-
-    elif query.data == "weather":
-        text = "🌦️ Météo\n\nModule en préparation."
-
-    elif query.data == "probabilities":
-        text = (
-            "📈 PROBABILITÉS\n\n"
-            "Le moteur calculera :\n\n"
-            "1 : victoire domicile\n"
-            "X : match nul\n"
-            "2 : victoire extérieur\n"
-            "Over / Under\n"
-            "BTTS\n"
-            "Double chance\n"
-            "Buteur\n"
-            "Penalty"
-        )
-
-    else:
-        text = "Option inconnue."
-
-    await query.edit_message_text(text)
 
 
 async def webhook(request: Request):
+    global telegram_app
+
     try:
         data = await request.json()
-
-        update = Update.de_json(
-            data,
-            telegram_app.bot
-        )
-
+        update = Update.de_json(data, telegram_app.bot)
         await telegram_app.process_update(update)
 
         return JSONResponse({"ok": True})
 
-    except Exception as error:
-        logging.exception("Erreur webhook : %s", error)
-        return JSONResponse(
-            {"ok": False},
-            status_code=500
-        )
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return JSONResponse({"ok": False}, status_code=500)
 
 
 async def health(request: Request):
     return JSONResponse({
         "status": "ok",
-        "bot": "sport-analyzer"
+        "bot": "sport-analyzer-bot"
     })
 
 
-async def startup():
+@asynccontextmanager
+async def lifespan(app):
+    global telegram_app
+
     if not TOKEN:
-        raise RuntimeError(
-            "La variable TELEGRAM_TOKEN est absente."
-        )
+        raise RuntimeError("TELEGRAM_TOKEN est manquant.")
 
     if not RENDER_URL:
-        raise RuntimeError(
-            "La variable RENDER_EXTERNAL_URL est absente."
-        )
+        raise RuntimeError("RENDER_EXTERNAL_URL est manquant.")
+
+    print("Initialisation du bot Telegram...")
+
+    telegram_app = (
+        Application.builder()
+        .token(TOKEN)
+        .build()
+    )
+
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(CommandHandler("help", help_command))
+    telegram_app.add_handler(CommandHandler("match", match_command))
+    telegram_app.add_handler(CommandHandler("analyse", analyse_command))
 
     await telegram_app.initialize()
     await telegram_app.start()
 
     webhook_url = f"{RENDER_URL}/telegram"
 
-    await telegram_app.bot.set_webhook(
-        url=webhook_url
-    )
+    await telegram_app.bot.set_webhook(webhook_url)
 
-    logging.info(
-        "Webhook Telegram configuré : %s",
-        webhook_url
-    )
+    print(f"Webhook Telegram configuré : {webhook_url}")
+    print("Bot démarré.")
 
+    yield
 
-async def shutdown():
-    await telegram_app.bot.delete_webhook()
+    print("Arrêt du bot...")
 
     await telegram_app.stop()
     await telegram_app.shutdown()
 
 
+routes = [
+    Route("/telegram", webhook, methods=["POST"]),
+    Route("/health", health, methods=["GET"]),
+]
+
+
 app = Starlette(
-    routes=[
-        ("/telegram", webhook),
-        ("/health", health),
-    ],
-    on_startup=[startup],
-    on_shutdown=[shutdown],
+    routes=routes,
+    lifespan=lifespan
 )
 
 
