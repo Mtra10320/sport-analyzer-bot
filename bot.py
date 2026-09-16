@@ -127,7 +127,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text)
 
 
-async def main():
+def main():
     if not TOKEN:
         raise ValueError("La variable TELEGRAM_TOKEN est absente.")
 
@@ -143,13 +143,8 @@ async def main():
 
     print("Bot démarré")
 
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-
-    await application.updater.idle()
+    application.run_polling()
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
