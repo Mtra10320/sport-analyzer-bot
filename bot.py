@@ -612,47 +612,49 @@ async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "N/A"
                 )
 
-                predicted_goals = predictions.get(
+                                predicted_goals = predictions.get(
                     "goals",
                     {}
                 )
 
+                if not isinstance(predicted_goals, dict):
+                    predicted_goals = {}
+
                 predicted_home = predicted_goals.get(
-                    "home",
-                    "N/A"
-                ) if isinstance(
-                    predicted_goals,
-                    dict
-                ) else "N/A"
+                    "home"
+                )
 
                 predicted_away = predicted_goals.get(
-                    "away",
-                    "N/A"
-                ) if isinstance(
-                    predicted_goals,
-                    dict
-                ) else "N/A"
+                    "away"
+                )
 
                 predicted_score = predictions.get(
                     "score",
                     {}
                 )
 
+                if not isinstance(predicted_score, dict):
+                    predicted_score = {}
+
                 score_home = predicted_score.get(
-                    "home",
-                    "N/A"
-                ) if isinstance(
-                    predicted_score,
-                    dict
-                ) else "N/A"
+                    "home"
+                )
 
                 score_away = predicted_score.get(
-                    "away",
-                    "N/A"
-                ) if isinstance(
-                    predicted_score,
-                    dict
-                ) else "N/A"
+                    "away"
+                )
+
+                if score_home is None:
+                    score_home = "N/A"
+
+                if score_away is None:
+                    score_away = "N/A"
+
+                if predicted_home is None:
+                    predicted_home = "N/A"
+
+                if predicted_away is None:
+                    predicted_away = "N/A"
 
                 message += (
                     "\n━━━━━━━━━━━━━━━━━━\n"
@@ -694,8 +696,8 @@ async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"🏆 Vainqueur : {winner_name}\n"
                     f"🥅 Score prévu : "
                     f"{score_home} - {score_away}\n"
-                    f"📊 Buts prévus : "
-                    f"{predicted_home} - "
+                    f"📊 Seuils buts API : "
+                    f"{predicted_home} / "
                     f"{predicted_away}\n"
                     f"📈 Over/Under : {under_over}\n"
                     f"💡 Conseil API : {advice}\n"
