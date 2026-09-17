@@ -430,15 +430,32 @@ async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        fixtures = fixture_data.get("response", [])
+                fixtures = fixture_data.get("response", [])
 
-if not fixtures:
-    await update.message.reply_text(
-        "❌ Aucun match trouvé pour aujourd'hui."
-    )
-    return
+        if not fixtures:
+            await update.message.reply_text(
+                "❌ Aucun match trouvé pour aujourd'hui."
+            )
+            return
 
-item = None
+        item = None
+
+        for fixture_item in fixtures:
+            current_id = (
+                fixture_item
+                .get("fixture", {})
+                .get("id")
+            )
+
+            if str(current_id) == str(fixture_id):
+                item = fixture_item
+                break
+
+        if item is None:
+            await update.message.reply_text(
+                "❌ Match introuvable dans les matchs du jour."
+            )
+            return
 
 for fixture_item in fixtures:
     current_id = (
