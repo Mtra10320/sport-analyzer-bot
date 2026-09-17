@@ -18,7 +18,7 @@ from starlette.routing import Route
 import uvicorn
 
 # ============================================================
-# SPORT ANALYZER V8
+# SPORT ANALYZER V9
 # Primary source: Football-Data.org
 # Fallback source: TheSportsDB
 # API-Football is intentionally not used by this version.
@@ -810,7 +810,7 @@ def build_analysis_message(data):
     sa = data["standings_away"]
 
     msg = (
-        "🔎 ANALYSE SPORT ANALYZER V8\n\n"
+        "🔎 ANALYSE SPORT ANALYZER V9\n\n"
         f"⚽ {home} - {away}\n"
         f"🏆 {comp}\n"
         f"📅 {date_text}\n"
@@ -838,25 +838,27 @@ def build_analysis_message(data):
         m = model["markets"]
         msg += (
             "\n🎯 PROBABILITÉS MODÈLE\n"
-            f"• 1 : {ph:.1f}%\n"
-            f"• X : {pd:.1f}%\n"
-            f"• 2 : {pa:.1f}%\n"
-            f"• 1X : {ph + pd:.1f}%\n"
-            f"• X2 : {pd + pa:.1f}%\n"
-            f"• 12 : {ph + pa:.1f}%\n\n"
-            "⚽ MARCHÉS DE BUTS\n"
-            f"• BTTS Oui : {m['btts']:.1f}%\n"
-            f"• Over 1.5 : {m['over15']:.1f}%\n"
-            f"• Over 2.5 : {m['over25']:.1f}%\n"
-            f"• Over 3.5 : {m['over35']:.1f}%\n"
-            f"• Under 2.5 : {m['under25']:.1f}%\n"
-            f"• xG modèle : {model['home_xg']:.2f} - {model['away_xg']:.2f}\n"
+            + probability_block([
+                ("1", ph), ("X", pd), ("2", pa),
+                ("1X", ph + pd), ("X2", pd + pa), ("12", ph + pa)
+            ])
+            + "\n\n⚽ MARCHÉS DE BUTS\n"
+            + probability_block([
+                ("BTTS Oui", m["btts"]),
+                ("BTTS Non", 100 - m["btts"]),
+                ("Over 1.5", m["over15"]),
+                ("Over 2.5", m["over25"]),
+                ("Over 3.5", m["over35"]),
+                ("Under 2.5", m["under25"]),
+                ("Under 3.5", m["under35"])
+            ])
+            + f"\nxG modèle : {model['home_xg']:.2f} - {model['away_xg']:.2f}\n"
         )
         scores = likely_scores(model["matrix"], 3)
         if scores:
             msg += "\n🔢 SCORES LES PLUS PROBABLES\n"
             for h, a, p in scores:
-                msg += f"• {h}-{a} : {p:.1f}%\n"
+                msg += f"• {h}-{a} : {prob_bar(p)} {p:.1f}%\n"
         msg += f"\n🧠 Confiance : {confidence_label(model['final'], data['quality'])}\n"
     else:
         msg += "\n⚠️ Données insuffisantes pour calculer le modèle de buts.\n"
@@ -1208,7 +1210,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu:home":
         await query.message.reply_text(
-            "🤖 SPORT ANALYZER V8\n\nChoisis une fonction :",
+            "🤖 SPORT ANALYZER V9\n\nChoisis une fonction :",
             reply_markup=main_menu(),
         )
         return
@@ -1572,7 +1574,7 @@ async def send_status_result(message):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 SPORT ANALYZER V8\n\n"
+        "🤖 SPORT ANALYZER V9\n\n"
         "Analyse football, probabilités, buts, cotes et suivi.\n\n"
         "Utilise les boutons ci-dessous pour naviguer.",
         reply_markup=main_menu(),
@@ -1580,7 +1582,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📊 SPORT ANALYZER V8\n\n"
+        "📊 SPORT ANALYZER V9\n\n"
         "/match = matchs du jour\n"
         "/analyse ID = analyse statistique\n"
         "/buts ID = BTTS, Over/Under et xG modèle\n"
