@@ -35,7 +35,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/probabilite - Probabilités"
     )
 
-
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📊 Sport Analyzer\n\n"
+        "Analyse sportive automatisée.\n\n"
+        "Utilise /match pour voir les matchs du jour."
+    )
+    
 async def match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     api_key = os.getenv("API_FOOTBALL_KEY")
 
