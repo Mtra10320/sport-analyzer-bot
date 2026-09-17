@@ -9,8 +9,8 @@ from zoneinfo import ZoneInfo
 from contextlib import asynccontextmanager
 
 import httpx
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -18,7 +18,7 @@ from starlette.routing import Route
 import uvicorn
 
 # ============================================================
-# SPORT ANALYZER V4
+# SPORT ANALYZER V5
 # Primary source: Football-Data.org
 # Fallback source: TheSportsDB
 # API-Football is intentionally not used by this version.
@@ -810,7 +810,7 @@ def build_analysis_message(data):
     sa = data["standings_away"]
 
     msg = (
-        "🔎 ANALYSE SPORT ANALYZER V4\n\n"
+        "🔎 ANALYSE SPORT ANALYZER V5\n\n"
         f"⚽ {home} - {away}\n"
         f"🏆 {comp}\n"
         f"📅 {date_text}\n"
@@ -893,29 +893,412 @@ def build_analysis_message(data):
     return msg
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🤖 SPORT ANALYZER V4\n\n"
-        "Football-Data.org + TheSportsDB.\n\n"
-        "/match\n"
-        "/analyse ID\n"
-        "/cotes ID\n"
-        "/buteur ID\n"
-        "/buts ID\n"
-        "/probabilite ID\n"
-        "/mise ID marché sélection montant [cote]\n"
-        "/resultat ID_BET win|loss|void\n"
-        "/bankroll\n"
-        "/statusapi\n"
-        "/performance\n"
-        "/validation\n"
-        "/help"
+def main_menu():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("⚽ Matchs du jour", callback_data="menu:match"),
+            InlineKeyboardButton("📊 Performance", callback_data="menu:performance"),
+        ],
+        [
+            InlineKeyboardButton("💰 Bankroll", callback_data="menu:bankroll"),
+            InlineKeyboardButton("🔌 Sources", callback_data="menu:status"),
+        ],
+        [
+            InlineKeyboardButton("🔄 Validation", callback_data="menu:validation"),
+            InlineKeyboardButton("❓ Aide", callback_data="menu:help"),
+        ],
+    ])
+
+
+def match_keyboard(fixture_id):
+    fid = str(fixture_id)
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔎 Analyse", callback_data=f"analyse:{fid}"),
+            InlineKeyboardButton("🎯 Probabilités", callback_data=f"prob:{fid}"),
+        ],
+        [
+            InlineKeyboardButton("⚽ Buts", callback_data=f"buts:{fid}"),
+            InlineKeyboardButton("💰 Cotes", callback_data=f"cotes:{fid}"),
+        ],
+        [
+            InlineKeyboardButton("⚽ Buteurs", callback_data=f"buteur:{fid}"),
+        ],
+        [InlineKeyboardButton("⬅️ Menu principal", callback_data="menu:home")],
+    ])
+
+
+def match_list_keyboard(matches):
+    rows = []
+    for item in matches[:20]:
+        fid = item.get("id")
+        home, away = match_names(item)
+        rows.append([
+            InlineKeyboardButton(
+                f"🔎 {home[:18]} - {away[:18]}",
+                callback_data=f"match:{fid}"
+            )
+        ])
+    rows.append([
+        InlineKeyboardButton("🔄 Actualiser", callback_data="menu:match"),
+        InlineKeyboardButton("🏠 Menu", callback_data="menu:home"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data or ""
+
+    if data == "menu:home":
+        await query.message.reply_text(
+            "🤖 SPORT ANALYZER V5\n\nChoisis une fonction :",
+            reply_markup=main_menu(),
+        )
+        return
+
+    if data == "menu:match":
+        await send_match_results(query.message)
+        return
+
+    if data == "menu:status":
+        await send_status_result(query.message)
+        return
+
+    if data == "menu:performance":
+        await send_performance_result(query.message, update.effective_user.id)
+        return
+
+    if data == "menu:validation":
+        await send_validation_result(query.message, update.effective_user.id)
+        return
+
+    if data == "menu:bankroll":
+        await send_bankroll_result(query.message, update.effective_user.id)
+        return
+
+    if data == "menu:help":
+        await query.message.reply_text(
+            "📚 AIDE RAPIDE\n\n"
+            "⚽ Matchs : rencontres disponibles aujourd'hui.\n"
+            "🔎 Analyse : analyse statistique complète.\n"
+            "🎯 Probabilités : 1X2 et double chance.\n"
+            "⚽ Buts : BTTS, Over/Under et xG.\n"
+            "💰 Cotes : informations disponibles.\n"
+            "⚽ Buteurs : événements disponibles.\n"
+            "📊 Performance : historique du modèle.\n"
+            "🔄 Validation : validation des prédictions terminées.\n"
+            "💶 Bankroll : suivi des mises.",
+            reply_markup=main_menu(),
+        )
+        return
+
+    if ":" not in data:
+        return
+    action, value = data.split(":", 1)
+
+    if action == "match":
+        await send_match_actions(query.message, value)
+    elif action == "analyse":
+        await run_analysis_for_message(query.message, value, update.effective_user.id)
+    elif action == "buts":
+        await run_buts_for_message(query.message, value)
+    elif action == "prob":
+        await run_prob_for_message(query.message, value)
+    elif action == "cotes":
+        await run_cotes_for_message(query.message, value)
+    elif action == "buteur":
+        await run_buteur_for_message(query.message, value)
+
+
+async def send_match_results(message):
+    async with httpx.AsyncClient(timeout=20) as client:
+        matches, error = [], None
+        source = "Football-Data.org"
+        if FOOTBALL_DATA_KEY:
+            matches, error = await fd_today_matches(client)
+        if not matches:
+            events, ts_error = await tsdb_today_events(
+                client, today_paris()
+            )
+            if events:
+                matches = [tsdb_to_match(e) for e in events]
+                source = "TheSportsDB"
+            elif error:
+                await message.reply_text(
+                    "❌ Aucune source disponible.\n\n"
+                    "Vérifie FOOTBALL_DATA_KEY dans Render.",
+                    reply_markup=main_menu(),
+                )
+                return
+
+    matches.sort(key=lambda x: fd_dt(x) or datetime.max.replace(tzinfo=PARIS))
+    matches = matches[:20]
+    if not matches:
+        await message.reply_text(
+            "⚽ Aucun match disponible aujourd'hui.",
+            reply_markup=main_menu(),
+        )
+        return
+
+    await message.reply_text(
+        f"⚽ MATCHS DU JOUR\n📅 {today_paris()}\n"
+        f"🔌 Source : {source}\n📊 {len(matches)} matchs\n\n"
+        "👇 Clique sur un match pour voir ses options.",
+        reply_markup=match_list_keyboard(matches),
     )
 
 
+async def send_match_actions(message, fixture_id):
+    async with httpx.AsyncClient(timeout=20) as client:
+        item, error = await find_fd_match(client, fixture_id)
+        if (error or not item) and str(fixture_id).startswith("TSDB-"):
+            events, error = await tsdb_today_events(client, today_paris())
+            item = next(
+                (
+                    tsdb_to_match(e)
+                    for e in (events or [])
+                    if f"TSDB-{e.get('idEvent')}" == str(fixture_id)
+                ),
+                None,
+            )
+
+    if error or not item:
+        await message.reply_text(
+            f"❌ Match introuvable : {fixture_id}",
+            reply_markup=main_menu(),
+        )
+        return
+
+    home, away = match_names(item)
+    comp = item.get("competition", {}).get("name", "Football")
+    dt = fd_dt(item)
+    date_text = dt.strftime("%d/%m/%Y %H:%M") if dt else "N/D"
+
+    await message.reply_text(
+        f"⚽ {home} - {away}\n"
+        f"🏆 {comp}\n📅 {date_text}\n🆔 {fixture_id}\n\n"
+        "Choisis une option :",
+        reply_markup=match_keyboard(fixture_id),
+    )
+
+
+async def run_analysis_for_message(message, fixture_id, user_id):
+    await message.reply_text("🔎 Analyse en cours…")
+    data, error = await full_analysis(fixture_id)
+    if error:
+        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        return
+    record_model_predictions(user_id, data)
+    await validate_predictions()
+    msg = build_analysis_message(data)
+    if len(msg) <= 3900:
+        await message.reply_text(msg, reply_markup=match_keyboard(fixture_id))
+    else:
+        for i in range(0, len(msg), 3800):
+            await message.reply_text(msg[i:i + 3800])
+
+
+async def run_buts_for_message(message, fixture_id):
+    data, error = await full_analysis(fixture_id)
+    if error:
+        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        return
+    model = data.get("model")
+    if not model:
+        await message.reply_text("❌ Données insuffisantes.", reply_markup=main_menu())
+        return
+    m = model["markets"]
+    await message.reply_text(
+        "⚽ MARCHÉS DE BUTS\n\n"
+        f"BTTS Oui : {m['btts']:.1f}%\n"
+        f"BTTS Non : {100-m['btts']:.1f}%\n"
+        f"Over 1.5 : {m['over15']:.1f}%\n"
+        f"Over 2.5 : {m['over25']:.1f}%\n"
+        f"Over 3.5 : {m['over35']:.1f}%\n"
+        f"Under 2.5 : {m['under25']:.1f}%\n"
+        f"Under 3.5 : {m['under35']:.1f}%\n"
+        f"xG : {model['home_xg']:.2f} - {model['away_xg']:.2f}",
+        reply_markup=match_keyboard(fixture_id),
+    )
+
+
+async def run_prob_for_message(message, fixture_id):
+    data, error = await full_analysis(fixture_id)
+    if error:
+        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        return
+    model = data.get("model")
+    if not model:
+        await message.reply_text("❌ Données insuffisantes.", reply_markup=main_menu())
+        return
+    h, d, a = model["final"]
+    home = data["match"]["homeTeam"]["name"]
+    away = data["match"]["awayTeam"]["name"]
+    await message.reply_text(
+        "🎯 PROBABILITÉS\n\n"
+        f"1 {home} : {h:.1f}%\n"
+        f"X Nul : {d:.1f}%\n"
+        f"2 {away} : {a:.1f}%\n\n"
+        f"1X : {h+d:.1f}%\nX2 : {d+a:.1f}%\n12 : {h+a:.1f}%",
+        reply_markup=match_keyboard(fixture_id),
+    )
+
+
+async def run_cotes_for_message(message, fixture_id):
+    await message.reply_text(
+        "💰 COTES\n\n"
+        "La source gratuite actuelle ne fournit pas toujours les cotes. "
+        "Aucune cote n'est inventée.\n\n"
+        "Pour enregistrer une cote manuellement :\n"
+        "/mise ID marché sélection montant cote",
+        reply_markup=match_keyboard(fixture_id),
+    )
+
+
+async def run_buteur_for_message(message, fixture_id):
+    if str(fixture_id).startswith("TSDB-"):
+        event_id = str(fixture_id).split("-", 1)[1]
+        async with httpx.AsyncClient(timeout=20) as client:
+            data, error = await tsdb_get(
+                client, "lookuptimeline.php", {"id": event_id},
+                cache_key=f"tsdb:timeline:{event_id}", ttl=120
+            )
+        if error:
+            await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+            return
+        timeline = data.get("timeline", []) or []
+        goals = [
+            x for x in timeline
+            if "goal" in str(x.get("strTimeline", "")).lower()
+        ]
+        if not goals:
+            await message.reply_text(
+                "⚽ Aucun événement de but disponible.",
+                reply_markup=match_keyboard(fixture_id),
+            )
+            return
+        msg = "⚽ BUTS / ÉVÉNEMENTS\n\n"
+        for g in goals[:15]:
+            msg += (
+                f"• {g.get('strTimeline', 'But')} | "
+                f"{g.get('strPlayer', 'Joueur N/D')}\n"
+            )
+        await message.reply_text(msg, reply_markup=match_keyboard(fixture_id))
+        return
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        data, error = await find_fd_match(client, fixture_id)
+    if error:
+        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        return
+    goals = data.get("goals", []) or []
+    if not goals:
+        await message.reply_text(
+            "⚽ Aucun détail de buteur disponible pour ce match.",
+            reply_markup=match_keyboard(fixture_id),
+        )
+        return
+    msg = "⚽ BUTEURS\n\n"
+    for g in goals[:20]:
+        scorer = g.get("scorer", {}) or {}
+        assist = g.get("assist", {}) or {}
+        msg += f"• {g.get('minute', '?')}' {scorer.get('name', 'N/D')}"
+        if assist.get("name"):
+            msg += f" | passe : {assist['name']}"
+        msg += "\n"
+    await message.reply_text(msg, reply_markup=match_keyboard(fixture_id))
+
+
+async def send_performance_result(message, user_id):
+    await validate_predictions()
+    perf = db_performance(user_id)
+    if not perf["total"]:
+        await message.reply_text(
+            "📊 PERFORMANCE DU MODÈLE\n\n"
+            "Aucune prédiction terminée n'est encore disponible.",
+            reply_markup=main_menu(),
+        )
+        return
+    msg = (
+        "📊 PERFORMANCE DU MODÈLE\n\n"
+        f"Prédictions validées : {perf['total']}\n"
+        f"Correctes : {perf['wins']}\n"
+        f"Taux de réussite : {perf['accuracy']:.1f}%\n\n"
+        "PAR MARCHÉ\n"
+    )
+    for market, d in sorted(perf["markets"].items()):
+        acc = d["wins"] / d["total"] * 100 if d["total"] else 0
+        msg += f"• {market} : {acc:.1f}% ({d['wins']}/{d['total']})\n"
+    await message.reply_text(msg, reply_markup=main_menu())
+
+
+async def send_validation_result(message, user_id):
+    checked = await validate_predictions()
+    perf = db_performance(user_id)
+    result = (
+        f"🔄 VALIDATION\n\n"
+        f"Prédictions nouvellement validées : {checked}\n"
+        f"Prédictions terminées : {perf['total']}\n"
+        f"Taux de réussite : {perf['accuracy']:.1f}%"
+        if perf["accuracy"] is not None
+        else "🔄 VALIDATION\n\nAucune prédiction terminée dans ton historique."
+    )
+    await message.reply_text(result, reply_markup=main_menu())
+
+
+async def send_bankroll_result(message, user_id):
+    total, profit, count, wins, roi = db_summary(user_id)
+    await message.reply_text(
+        "💶 BANKROLL\n\n"
+        f"Mises enregistrées : {total:.2f} €\n"
+        f"Profit/perte : {profit:+.2f} €\n"
+        f"Paris : {count}\n"
+        f"Paris gagnants : {wins}\n"
+        f"ROI : {roi:+.2f}%",
+        reply_markup=main_menu(),
+    )
+
+
+async def send_status_result(message):
+    async with httpx.AsyncClient(timeout=15) as client:
+        fd_ok = False
+        fd_detail = "Clé absente"
+        if FOOTBALL_DATA_KEY:
+            data, error = await fd_get(
+                client, "/matches", {"date": today_paris()},
+                cache_key="fd:status", ttl=30
+            )
+            fd_ok = data is not None and error is None
+            fd_detail = "OK" if fd_ok else str(error)
+        ts_data, ts_error = await tsdb_get(
+            client, "eventsday.php",
+            {"d": today_paris(), "s": "Soccer"},
+            cache_key="tsdb:status", ttl=30
+        )
+        ts_ok = ts_data is not None and ts_error is None
+    await message.reply_text(
+        "🔌 ÉTAT DES SOURCES\n\n"
+        f"Football-Data.org : {'🟢 OK' if fd_ok else '🔴 Indisponible'}\n"
+        f"Détail : {fd_detail[:300]}\n\n"
+        f"TheSportsDB : {'🟢 OK' if ts_ok else '🔴 Indisponible'}\n"
+        "API-Football : ⚪ désactivée dans V5",
+        reply_markup=main_menu(),
+    )
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🤖 SPORT ANALYZER V5\n\n"
+        "Analyse football, probabilités, buts, cotes et suivi.\n\n"
+        "Utilise les boutons ci-dessous pour naviguer.",
+        reply_markup=main_menu(),
+    )
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📊 SPORT ANALYZER V4\n\n"
+        "📊 SPORT ANALYZER V5\n\n"
         "/match = matchs du jour\n"
         "/analyse ID = analyse statistique\n"
         "/buts ID = BTTS, Over/Under et xG modèle\n"
@@ -964,7 +1347,7 @@ async def match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         comp = item.get("competition", {}).get("name", "Football")
         msg += f"🕒 {time_text} | {comp}\n{home} - {away}\n🆔 {item.get('id')}\n\n"
     msg += "ℹ️ Les données gratuites varient selon la source et la compétition."
-    await update.message.reply_text(msg[:3900])
+    await update.message.reply_text(msg[:3900], reply_markup=match_list_keyboard(matches))
 
 
 async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1208,7 +1591,7 @@ async def webhook(request: Request):
 
 
 async def health(request: Request):
-    return JSONResponse({"status": "ok", "bot": "sport-analyzer-bot-v4"})
+    return JSONResponse({"status": "ok", "bot": "sport-analyzer-bot-v5"})
 
 
 @asynccontextmanager
@@ -1234,6 +1617,7 @@ async def lifespan(app):
     telegram_app.add_handler(CommandHandler("statusapi", statusapi_command))
     telegram_app.add_handler(CommandHandler("performance", performance_command))
     telegram_app.add_handler(CommandHandler("validation", validate_command))
+    telegram_app.add_handler(CallbackQueryHandler(callback_handler))
 
     await telegram_app.initialize()
     await telegram_app.start()
