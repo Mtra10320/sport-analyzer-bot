@@ -20,6 +20,158 @@ RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")
 
 telegram_app = None
 
+# ==========================================
+# CHAMPIONNATS PRIORITAIRES
+# ==========================================
+
+ESSENTIAL_LEAGUES = {
+    "England": {
+        "Premier League",
+        "Championship",
+    },
+    "Spain": {
+        "La Liga",
+        "Segunda División",
+    },
+    "Italy": {
+        "Serie A",
+        "Serie B",
+    },
+    "Germany": {
+        "Bundesliga",
+        "2. Bundesliga",
+    },
+    "France": {
+        "Ligue 1",
+        "Ligue 2",
+    },
+    "Portugal": {
+        "Primeira Liga",
+        "Segunda Liga",
+    },
+    "Netherlands": {
+        "Eredivisie",
+        "Eerste Divisie",
+    },
+    "Belgium": {
+        "Jupiler Pro League",
+        "Challenger Pro League",
+    },
+    "Turkey": {
+        "Süper Lig",
+        "1. Lig",
+    },
+    "Poland": {
+        "Ekstraklasa",
+        "I Liga",
+    },
+    "Austria": {
+        "Bundesliga",
+        "2. Liga",
+    },
+    "Switzerland": {
+        "Super League",
+        "Challenge League",
+    },
+    "Greece": {
+        "Super League 1",
+        "Super League 2",
+    },
+    "Denmark": {
+        "Superliga",
+        "1. Division",
+    },
+    "Sweden": {
+        "Allsvenskan",
+        "Superettan",
+    },
+    "Norway": {
+        "Eliteserien",
+        "1. Division",
+        "OBOS-ligaen",
+    },
+    "Czech-Republic": {
+        "Czech Liga",
+        "FNL",
+    },
+    "Serbia": {
+        "Super Liga",
+        "Prva Liga",
+    },
+    "Croatia": {
+        "HNL",
+        "First NL",
+    },
+    "Romania": {
+        "Liga I",
+        "Liga II",
+    },
+    "Ukraine": {
+        "Premier League",
+        "Persha Liga",
+    },
+    "Russia": {
+        "Premier League",
+        "First League",
+    },
+    "Israel": {
+        "Premier League",
+        "Liga Leumit",
+    },
+    "Scotland": {
+        "Premiership",
+        "Championship",
+    },
+    "Ireland": {
+        "Premier Division",
+        "First Division",
+    },
+    "Finland": {
+        "Veikkausliiga",
+        "Ykkösliiga",
+    },
+    "Hungary": {
+        "NB I",
+        "NB II",
+    },
+    "Slovakia": {
+        "Super Liga",
+        "2. liga",
+    },
+    "Slovenia": {
+        "1. SNL",
+        "2. SNL",
+    },
+    "Bulgaria": {
+        "First League",
+        "Second League",
+    },
+    "Cyprus": {
+        "1. Division",
+        "2. Division",
+    },
+    "Bosnia-Herzegovina": {
+        "Premijer Liga",
+        "1st League - FBiH",
+        "1st League - RS",
+    },
+    "Albania": {
+        "Superliga",
+        "1st Division",
+    },
+    "Iceland": {
+        "Úrvalsdeild",
+        "1. Deild",
+    },
+    "Luxembourg": {
+        "National Division",
+        "Division 2",
+    },
+    "Malta": {
+        "Premier League",
+        "Challenge League",
+    },
+}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -41,7 +193,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Analyse sportive automatisée.\n\n"
         "Utilise /match pour voir les matchs du jour."
     )
-    
+
+
 async def match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     api_key = os.getenv("API_FOOTBALL_KEY")
 
@@ -95,19 +248,65 @@ async def match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        message = f"⚽ MATCHS DU {today}\n\n"
+        # Filtrage des championnats prioritaires
+        essential_fixtures = []
 
-        for item in fixtures[:30]:
+        for item in fixtures:
+            league = item.get("league", {})
+
+            country = league.get("country", "")
+            league_name = league.get("name", "")
+
+            allowed_leagues = ESSENTIAL_LEAGUES.get(country, set())
+
+            if league_name in allowed_leagues:
+                essential_fixtures.append(item)
+
+        if not essential_fixtures:
+            await update.message.reply_text(
+                f"⚽ Aucun match des championnats prioritaires "
+                f"pour le {today}."
+            )
+            return
+
+        message = (
+            f"⚽ MATCHS PRIORITAIRES\n"
+            f"📅 {today}\n"
+            f"📊 {len(essential_fixtures)} matchs\n\n"
+        )
+
+        current_country = None
+
+        for item in essential_fixtures:
             fixture = item.get("fixture", {})
             league = item.get("league", {})
             teams = item.get("teams", {})
 
+            fixture_id = fixture.get("id")
             date = fixture.get("date", "")
             status = fixture.get("status", {}).get("short", "N/A")
 
-            home = teams.get("home", {}).get("name", "Inconnu")
-            away = teams.get("away", {}).get("name", "Inconnu")
-            competition = league.get("name", "Compétition inconnue")
+            country = league.get("country", "Inconnu")
+            competition = league.get(
+                "name",
+                "Compétition inconnue"
+            )
+
+            home = teams.get("home", {}).get(
+                "name",
+                "Inconnu"
+            )
+
+            away = teams.get("away", {}).get(
+                "name",
+                "Inconnu"
+            )
+
+            if country != current_country:
+                message += (
+                    f"🌍 {country.upper()}\n\n"
+                )
+                current_country = country
 
             try:
                 match_time = datetime.fromisoformat(
@@ -116,18 +315,35 @@ async def match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 match_time = "??:??"
 
+            status_display = {
+                "NS": "À venir",
+                "TBD": "Horaire à confirmer",
+                "1H": "1ère mi-temps",
+                "HT": "Mi-temps",
+                "2H": "2ème mi-temps",
+                "ET": "Prolongation",
+                "P": "Tirs au but",
+                "FT": "Terminé",
+                "PST": "Reporté",
+                "CANC": "Annulé",
+                "SUSP": "Suspendu",
+            }.get(status, status)
+
             message += (
                 f"🏆 {competition}\n"
                 f"🕐 {match_time}\n"
                 f"⚽ {home} - {away}\n"
-                f"📌 {status}\n\n"
+                f"📌 {status_display}\n"
+                f"🆔 {fixture_id}\n\n"
             )
 
-        if len(fixtures) > 30:
-            message += (
-                f"📋 {len(fixtures)} matchs trouvés.\n"
-                "Affichage limité aux 30 premiers."
-            )
+        message += (
+            "━━━━━━━━━━━━━━━━━━\n"
+            "📊 Pour analyser un match :\n"
+            "/analyse ID\n\n"
+            "Exemple :\n"
+            "/analyse 1234567"
+        )
 
         await update.message.reply_text(message)
 
@@ -137,7 +353,6 @@ async def match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "❌ Impossible de contacter API-Football."
         )
-
 
 async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
