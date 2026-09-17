@@ -401,8 +401,9 @@ async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 fixture_url,
                 headers=headers,
                 params={
-                    "ids": fixture_id
-                }
+    "date": datetime.now(ZoneInfo("Europe/Paris")).strftime("%Y-%m-%d"),
+    "timezone": "Europe/Paris"
+}
             )
 
             prediction_response = await client.get(
@@ -431,13 +432,30 @@ async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         fixtures = fixture_data.get("response", [])
 
-        if not fixtures:
-            await update.message.reply_text(
-                "❌ Match introuvable."
-            )
-            return
+if not fixtures:
+    await update.message.reply_text(
+        "❌ Aucun match trouvé pour aujourd'hui."
+    )
+    return
 
-        item = fixtures[0]
+item = None
+
+for fixture_item in fixtures:
+    current_id = (
+        fixture_item
+        .get("fixture", {})
+        .get("id")
+    )
+
+    if str(current_id) == str(fixture_id):
+        item = fixture_item
+        break
+
+if item is None:
+    await update.message.reply_text(
+        "❌ Match introuvable dans les matchs du jour."
+    )
+    return
 
         fixture = item.get("fixture", {})
         league = item.get("league", {})
