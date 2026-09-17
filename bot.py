@@ -355,90 +355,407 @@ async def match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📊 Analyse\n\n"
-        "Le moteur d'analyse sera bientôt connecté aux données football."
+    api_key = os.getenv("API_FOOTBALL_KEY")
+
+    if not api_key:
+        await update.message.reply_text(
+            "❌ Clé API-Football absente."
+        )
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "📊 ANALYSE D'UN MATCH\n\n"
+            "Utilisation :\n"
+            "/analyse ID\n\n"
+            "Exemple :\n"
+            "/analyse 1561400"
+        )
+        return
+
+    fixture_id = context.args[0]
+
+    if not fixture_id.isdigit():
+        await update.message.reply_text(
+            "❌ L'ID du match doit être numérique.\n\n"
+            "Exemple : /analyse 1561400"
+        )
+        return
+
+    headers = {
+        "x-apisports-key": api_key
+    }
+
+    fixture_url = (
+        "https://v3.football.api-sports.io/fixtures"
     )
 
-
-async def webhook(request: Request):
-    global telegram_app
+    prediction_url = (
+        "https://v3.football.api-sports.io/predictions"
+    )
 
     try:
-        data = await request.json()
-        update = Update.de_json(data, telegram_app.bot)
-        await telegram_app.process_update(update)
+        async with httpx.AsyncClient(timeout=20) as client:
 
-        return JSONResponse({"ok": True})
+            fixture_response = await client.get(
+                fixture_url,
+                headers=headers,
+                params={
+                    "ids": fixture_id
+                }
+            )
+
+            prediction_response = await client.get(
+                prediction_url,
+                headers=headers,
+                params={
+                    "fixture": fixture_id
+                }
+            )
+
+        if fixture_response.status_code != 200:
+            await update.message.reply_text(
+                f"❌ Erreur API-Football : "
+                f"{fixture_response.status_code}"
+            )
+            return
+
+        fixture_data = fixture_response.json()
+
+        if fixture_data.get("errors"):
+            await update.message.reply_text(
+                f"❌ API-Football : "
+                f"{fixture_data['errors']}"
+            )
+            return
+
+        fixtures = fixture_data.get("response", [])
+
+        if not fixtures:
+            await update.message.reply_text(
+                "❌ Match introuvable."
+            )
+            return
+
+        item = fixtures[0]
+
+        fixture = item.get("fixture", {})
+        league = item.get("league", {})
+        teams = item.get("teams", {})
+        goals = item.get("goals", {})
+
+        home = teams.get("home", {})
+        away = teams.get("away", {})
+
+        home_name = home.get("name", "Inconnu")
+        away_name = away.get("name", "Inconnu")
+
+        competition = league.get(
+            "name",
+            "Compétition inconnue"
+        )
+
+        country = league.get(
+            "country",
+            "Pays inconnu"
+        )
+
+        status = fixture.get(
+            "status",
+            {}
+        ).get(
+            "short",
+            "N/A"
+        )
+
+        venue = fixture.get(
+            "venue",
+            {}
+        ).get(
+            "name",
+            "Non communiqué"
+        )
+
+        paris = ZoneInfo("Europe/Paris")
+
+        match_date = fixture.get("date", "")
+
+        try:
+            match_datetime = datetime.fromisoformat(
+                match_date.replace("Z", "+00:00")
+            ).astimezone(paris)
+
+            formatted_date = match_datetime.strftime(
+                "%d/%m/%Y à %H:%M"
+            )
+
+        except Exception:
+            formatted_date = "Date inconnue"
+
+        status_display = {
+            "NS": "À venir",
+            "TBD": "Horaire à confirmer",
+            "1H": "1ère mi-temps",
+            "HT": "Mi-temps",
+            "2H": "2ème mi-temps",
+            "ET": "Prolongation",
+            "P": "Tirs au but",
+            "FT": "Terminé",
+            "PST": "Reporté",
+            "CANC": "Annulé",
+            "SUSP": "Suspendu"
+        }.get(status, status)
+
+        message = (
+            "📊 SPORT ANALYZER\n\n"
+            f"🌍 {country}\n"
+            f"🏆 {competition}\n"
+            f"⚽ {home_name} - {away_name}\n"
+            f"🕐 {formatted_date}\n"
+            f"📌 {status_display}\n"
+            f"🏟️ {venue}\n"
+            f"🆔 {fixture_id}\n"
+        )
+
+        # Score si disponible
+        home_goals = goals.get("home")
+        away_goals = goals.get("away")
+
+        if home_goals is not None or away_goals is not None:
+            message += (
+                f"\n🥅 SCORE : "
+                f"{home_goals} - {away_goals}\n"
+            )
+
+        # Analyse API-Football
+        if prediction_response.status_code == 200:
+
+            prediction_data = prediction_response.json()
+
+            prediction_response_list = (
+                prediction_data.get("response", [])
+            )
+
+            if prediction_response_list:
+
+                prediction_item = (
+                    prediction_response_list[0]
+                )
+
+                predictions = (
+                    prediction_item.get(
+                        "predictions",
+                        {}
+                    )
+                )
+
+                percent = predictions.get(
+                    "percent",
+                    {}
+                )
+
+                home_pct = percent.get(
+                    "home",
+                    "N/A"
+                )
+
+                draw_pct = percent.get(
+                    "draw",
+                    "N/A"
+                )
+
+                away_pct = percent.get(
+                    "away",
+                    "N/A"
+                )
+
+                winner = predictions.get(
+                    "winner",
+                    {}
+                )
+
+                winner_name = winner.get(
+                    "name",
+                    "N/A"
+                ) if isinstance(
+                    winner,
+                    dict
+                ) else str(winner)
+
+                advice = predictions.get(
+                    "advice",
+                    "N/A"
+                )
+
+                under_over = predictions.get(
+                    "under_over",
+                    "N/A"
+                )
+
+                predicted_goals = predictions.get(
+                    "goals",
+                    {}
+                )
+
+                predicted_home = predicted_goals.get(
+                    "home",
+                    "N/A"
+                ) if isinstance(
+                    predicted_goals,
+                    dict
+                ) else "N/A"
+
+                predicted_away = predicted_goals.get(
+                    "away",
+                    "N/A"
+                ) if isinstance(
+                    predicted_goals,
+                    dict
+                ) else "N/A"
+
+                predicted_score = predictions.get(
+                    "score",
+                    {}
+                )
+
+                score_home = predicted_score.get(
+                    "home",
+                    "N/A"
+                ) if isinstance(
+                    predicted_score,
+                    dict
+                ) else "N/A"
+
+                score_away = predicted_score.get(
+                    "away",
+                    "N/A"
+                ) if isinstance(
+                    predicted_score,
+                    dict
+                ) else "N/A"
+
+                message += (
+                    "\n━━━━━━━━━━━━━━━━━━\n"
+                    "📈 PROBABILITÉS API\n\n"
+                    f"1️⃣ {home_name} : {home_pct}\n"
+                    f"⚖️ Nul : {draw_pct}\n"
+                    f"2️⃣ {away_name} : {away_pct}\n"
+                )
+
+                # Conversion des probabilités
+                def percentage(value):
+                    try:
+                        return float(
+                            str(value)
+                            .replace("%", "")
+                            .replace(",", ".")
+                        )
+                    except Exception:
+                        return None
+
+                h = percentage(home_pct)
+                d = percentage(draw_pct)
+                a = percentage(away_pct)
+
+                if (
+                    h is not None
+                    and d is not None
+                    and a is not None
+                ):
+                    message += (
+                        "\n🔄 DOUBLE CHANCE\n\n"
+                        f"1X : {h + d:.1f}%\n"
+                        f"X2 : {d + a:.1f}%\n"
+                        f"12 : {h + a:.1f}%\n"
+                    )
+
+                message += (
+                    "\n🎯 PRÉDICTION API\n\n"
+                    f"🏆 Vainqueur : {winner_name}\n"
+                    f"🥅 Score prévu : "
+                    f"{score_home} - {score_away}\n"
+                    f"📊 Buts prévus : "
+                    f"{predicted_home} - "
+                    f"{predicted_away}\n"
+                    f"📈 Over/Under : {under_over}\n"
+                    f"💡 Conseil API : {advice}\n"
+                )
+
+                comparison = (
+                    prediction_item.get(
+                        "comparison",
+                        {}
+                    )
+                )
+
+                if comparison:
+
+                    message += (
+                        "\n📊 COMPARAISON\n\n"
+                    )
+
+                    labels = {
+                        "form": "Forme",
+                        "att": "Attaque",
+                        "def": "Défense",
+                        "h2h": "H2H",
+                        "poisson_distribution": "Poisson"
+                    }
+
+                    for key, label in labels.items():
+
+                        value = comparison.get(key)
+
+                        if isinstance(value, dict):
+
+                            comp_home = value.get(
+                                "home",
+                                "N/A"
+                            )
+
+                            comp_away = value.get(
+                                "away",
+                                "N/A"
+                            )
+
+                            message += (
+                                f"• {label} : "
+                                f"{comp_home} / "
+                                f"{comp_away}\n"
+                            )
+
+                        elif value is not None:
+
+                            message += (
+                                f"• {label} : "
+                                f"{value}\n"
+                            )
+
+        else:
+            message += (
+                "\n⚠️ Prédiction API indisponible "
+                "pour ce match.\n"
+            )
+
+        message += (
+            "\n━━━━━━━━━━━━━━━━━━\n"
+            "🔎 Analyse avancée : prochaine étape\n"
+            "📋 Classement\n"
+            "📈 Forme détaillée\n"
+            "🤕 Blessures / absences\n"
+            "👥 Compositions\n"
+            "⚽ Buteurs\n"
+            "📊 BTTS / Over-Under\n"
+            "💰 Cotes & Value\n"
+        )
+
+        await update.message.reply_text(message)
 
     except Exception as e:
-        print(f"Webhook error: {e}")
-        return JSONResponse({"ok": False}, status_code=500)
 
+        print(f"Analyse error: {e}")
 
-async def health(request: Request):
-    return JSONResponse({
-        "status": "ok",
-        "bot": "sport-analyzer-bot"
-    })
-
-
-@asynccontextmanager
-async def lifespan(app):
-    global telegram_app
-
-    if not TOKEN:
-        raise RuntimeError("TELEGRAM_TOKEN est manquant.")
-
-    if not RENDER_URL:
-        raise RuntimeError("RENDER_EXTERNAL_URL est manquant.")
-
-    print("Initialisation du bot Telegram...")
-
-    telegram_app = (
-        Application.builder()
-        .token(TOKEN)
-        .build()
-    )
-
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(CommandHandler("help", help_command))
-    telegram_app.add_handler(CommandHandler("match", match_command))
-    telegram_app.add_handler(CommandHandler("analyse", analyse_command))
-
-    await telegram_app.initialize()
-    await telegram_app.start()
-
-    webhook_url = f"{RENDER_URL}/telegram"
-
-    await telegram_app.bot.set_webhook(webhook_url)
-
-    print(f"Webhook Telegram configuré : {webhook_url}")
-    print("Bot démarré.")
-
-    yield
-
-    print("Arrêt du bot...")
-
-    await telegram_app.stop()
-    await telegram_app.shutdown()
-
-
-routes = [
-    Route("/telegram", webhook, methods=["POST"]),
-    Route("/health", health, methods=["GET"]),
-]
-
-
-app = Starlette(
-    routes=routes,
-    lifespan=lifespan
-)
-
-
-if __name__ == "__main__":
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=PORT
-    )
+        await update.message.reply_text(
+            "❌ Impossible d'effectuer l'analyse "
+            "de ce match."
+        )
