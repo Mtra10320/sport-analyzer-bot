@@ -483,8 +483,11 @@ async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         if avg_prob is not None:
             msg += f" | prob. moy. {avg_prob:.1f}%"
         msg += "\n"
-    await update.message.reply_text(msg, parse_mode="HTML", reply_markup=match_keyboard(fixture_id))
-
+    await update.message.reply_text(
+    msg,
+    parse_mode="HTML",
+    reply_markup=main_menu()
+)
 
 async def validate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     checked = await validate_predictions()
