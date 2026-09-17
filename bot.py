@@ -18,7 +18,7 @@ from starlette.routing import Route
 import uvicorn
 
 # ============================================================
-# SPORT ANALYZER V3
+# SPORT ANALYZER V4
 # Primary source: Football-Data.org
 # Fallback source: TheSportsDB
 # API-Football is intentionally not used by this version.
@@ -210,6 +210,21 @@ def init_db():
             settled_at TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            fixture_id TEXT NOT NULL,
+            home_team TEXT NOT NULL,
+            away_team TEXT NOT NULL,
+            market TEXT NOT NULL,
+            selection TEXT NOT NULL,
+            probability REAL,
+            predicted_at TEXT NOT NULL,
+            outcome TEXT,
+            settled_at TEXT
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -266,6 +281,220 @@ def db_summary(user_id):
     wins = sum(r[1] == "win" for r in settled)
     roi = profit / total * 100 if total else 0.0
     return total, profit, len(rows), wins, roi
+
+
+
+def db_add_prediction(user_id, fixture_id, home_team, away_team, market, selection, probability):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.execute(
+        """INSERT INTO predictions
+        (user_id, fixture_id, home_team, away_team, market, selection, probability, predicted_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            user_id,
+            str(fixture_id),
+            home_team,
+            away_team,
+            market,
+            selection,
+            probability,
+            now_iso(),
+        ),
+    )
+    prediction_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return prediction_id
+
+
+def prediction_outcome(market, selection, home_goals, away_goals):
+    if home_goals is None or away_goals is None:
+        return None
+
+    total = home_goals + away_goals
+    if market == "1X2":
+        actual = "1" if home_goals > away_goals else "X" if home_goals == away_goals else "2"
+    elif market == "BTTS":
+        actual = "Oui" if home_goals > 0 and away_goals > 0 else "Non"
+    elif market == "O2.5":
+        actual = "Oui" if total >= 3 else "Non"
+    elif market == "O1.5":
+        actual = "Oui" if total >= 2 else "Non"
+    elif market == "1X":
+        actual = "Oui" if home_goals >= away_goals else "Non"
+    elif market == "X2":
+        actual = "Oui" if away_goals >= home_goals else "Non"
+    elif market == "12":
+        actual = "Oui" if home_goals != away_goals else "Non"
+    else:
+        return None
+    return "win" if str(selection).lower() == str(actual).lower() else "loss"
+
+
+def db_performance(user_id=None):
+    conn = sqlite3.connect(DB_PATH)
+    if user_id is None:
+        rows = conn.execute(
+            "SELECT market, probability, outcome FROM predictions WHERE outcome IS NOT NULL"
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT market, probability, outcome FROM predictions WHERE user_id=? AND outcome IS NOT NULL",
+            (user_id,),
+        ).fetchall()
+    conn.close()
+
+    by_market = {}
+    for market, probability, outcome in rows:
+        d = by_market.setdefault(
+            market, {"total": 0, "wins": 0, "prob_sum": 0.0, "prob_n": 0}
+        )
+        d["total"] += 1
+        d["wins"] += 1 if outcome == "win" else 0
+        if probability is not None:
+            d["prob_sum"] += float(probability)
+            d["prob_n"] += 1
+
+    total = len(rows)
+    wins = sum(1 for _, _, o in rows if o == "win")
+    return {
+        "total": total,
+        "wins": wins,
+        "accuracy": (wins / total * 100) if total else None,
+        "markets": by_market,
+    }
+
+
+async def validate_predictions():
+    conn = sqlite3.connect(DB_PATH)
+    pending = conn.execute(
+        """SELECT id, fixture_id, market, selection
+           FROM predictions
+           WHERE outcome IS NULL AND fixture_id NOT LIKE 'TSDB-%'
+           ORDER BY id ASC
+           LIMIT 30"""
+    ).fetchall()
+    conn.close()
+
+    if not pending or not FOOTBALL_DATA_KEY:
+        return 0
+
+    checked = 0
+    async with httpx.AsyncClient(timeout=20) as client:
+        for prediction_id, fixture_id, market, selection in pending:
+            try:
+                match, error = await find_fd_match(client, fixture_id)
+                if error or not match:
+                    continue
+                status = match.get("status")
+                if status not in {"FINISHED", "AWARDED"}:
+                    continue
+                hg, ag = score_pair(match)
+                outcome = prediction_outcome(market, selection, hg, ag)
+                if outcome is None:
+                    continue
+
+                conn = sqlite3.connect(DB_PATH)
+                conn.execute(
+                    "UPDATE predictions SET outcome=?, settled_at=? WHERE id=? AND outcome IS NULL",
+                    (outcome, now_iso(), prediction_id),
+                )
+                conn.commit()
+                conn.close()
+                checked += 1
+            except Exception as exc:
+                print(f"Validation prediction {prediction_id}: {exc}")
+    return checked
+
+
+def record_model_predictions(user_id, data):
+    model = data.get("model")
+    match = data.get("match", {})
+    if not model or not match:
+        return 0
+
+    fixture_id = match.get("id")
+    home = match.get("homeTeam", {}).get("name", "Domicile")
+    away = match.get("awayTeam", {}).get("name", "Extérieur")
+    h, d, a = model["final"]
+    markets = model["markets"]
+
+    candidates = [
+        ("1X2", "1", h),
+        ("1X2", "X", d),
+        ("1X2", "2", a),
+        ("BTTS", "Oui" if markets["btts"] >= 50 else "Non",
+         max(markets["btts"], 100 - markets["btts"])),
+        ("O2.5", "Oui" if markets["over25"] >= 50 else "Non",
+         max(markets["over25"], 100 - markets["over25"])),
+        ("O1.5", "Oui" if markets["over15"] >= 50 else "Non",
+         max(markets["over15"], 100 - markets["over15"])),
+        ("1X", "Oui" if h + d >= 50 else "Non", max(h + d, 100 - (h + d))),
+        ("X2", "Oui" if d + a >= 50 else "Non", max(d + a, 100 - (d + a))),
+        ("12", "Oui" if h + a >= 50 else "Non", max(h + a, 100 - (h + a))),
+    ]
+
+    # One prediction per market for this user/match.
+    conn = sqlite3.connect(DB_PATH)
+    existing = {
+        (r[0], r[1])
+        for r in conn.execute(
+            "SELECT market, selection FROM predictions WHERE user_id=? AND fixture_id=?",
+            (user_id, str(fixture_id)),
+        ).fetchall()
+    }
+    conn.close()
+
+    count = 0
+    for market, selection, probability in candidates:
+        key = (market, selection)
+        if key in existing:
+            continue
+        db_add_prediction(
+            user_id, fixture_id, home, away, market, selection, float(probability)
+        )
+        count += 1
+    return count
+
+
+async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await validate_predictions()
+    perf = db_performance(update.effective_user.id)
+    if not perf["total"]:
+        await update.message.reply_text(
+            "📊 PERFORMANCE DU MODÈLE\n\n"
+            "Aucune prédiction terminée n'est encore disponible."
+        )
+        return
+
+    msg = (
+        "📊 PERFORMANCE DU MODÈLE\n\n"
+        f"Prédictions validées : {perf['total']}\n"
+        f"Correctes : {perf['wins']}\n"
+        f"Taux de réussite : {perf['accuracy']:.1f}%\n\n"
+        "PAR MARCHÉ\n"
+    )
+    for market, d in sorted(perf["markets"].items()):
+        acc = d["wins"] / d["total"] * 100 if d["total"] else 0
+        avg_prob = d["prob_sum"] / d["prob_n"] if d["prob_n"] else None
+        msg += f"• {market} : {acc:.1f}% ({d['wins']}/{d['total']})"
+        if avg_prob is not None:
+            msg += f" | prob. moy. {avg_prob:.1f}%"
+        msg += "\n"
+    await update.message.reply_text(msg)
+
+
+async def validate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    checked = await validate_predictions()
+    perf = db_performance(update.effective_user.id)
+    await update.message.reply_text(
+        "🔄 VALIDATION\n\n"
+        f"Prédictions nouvellement validées : {checked}\n"
+        f"Prédictions terminées dans ton historique : {perf['total']}\n"
+        f"Taux de réussite : "
+        f"{perf['accuracy']:.1f}%" if perf["accuracy"] is not None else
+        "🔄 VALIDATION\n\nAucune prédiction terminée dans ton historique."
+    )
 
 
 async def cached_get(client, url, headers=None, params=None, cache_key=None, ttl=60):
@@ -581,7 +810,7 @@ def build_analysis_message(data):
     sa = data["standings_away"]
 
     msg = (
-        "🔎 ANALYSE SPORT ANALYZER V3\n\n"
+        "🔎 ANALYSE SPORT ANALYZER V4\n\n"
         f"⚽ {home} - {away}\n"
         f"🏆 {comp}\n"
         f"📅 {date_text}\n"
@@ -666,7 +895,7 @@ def build_analysis_message(data):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 SPORT ANALYZER V3\n\n"
+        "🤖 SPORT ANALYZER V4\n\n"
         "Football-Data.org + TheSportsDB.\n\n"
         "/match\n"
         "/analyse ID\n"
@@ -678,13 +907,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/resultat ID_BET win|loss|void\n"
         "/bankroll\n"
         "/statusapi\n"
+        "/performance\n"
+        "/validation\n"
         "/help"
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📊 SPORT ANALYZER V3\n\n"
+        "📊 SPORT ANALYZER V4\n\n"
         "/match = matchs du jour\n"
         "/analyse ID = analyse statistique\n"
         "/buts ID = BTTS, Over/Under et xG modèle\n"
@@ -695,7 +926,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/mise ID marché sélection montant [cote]\n"
         "/resultat ID_BET win|loss|void\n"
         "/bankroll\n\n"
-        "🔧 /statusapi = état des sources"
+        "🔧 /statusapi = état des sources\n"
+        "📈 /performance = résultats historiques du modèle\n"
+        "🔄 /validation = valider les prédictions terminées"
     )
 
 
@@ -749,6 +982,8 @@ async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if error:
         await update.message.reply_text(f"❌ {error}")
         return
+    record_model_predictions(update.effective_user.id, data)
+    await validate_predictions()
     msg = build_analysis_message(data)
     if len(msg) <= 3900:
         await update.message.reply_text(msg)
@@ -973,7 +1208,7 @@ async def webhook(request: Request):
 
 
 async def health(request: Request):
-    return JSONResponse({"status": "ok", "bot": "sport-analyzer-bot-v3"})
+    return JSONResponse({"status": "ok", "bot": "sport-analyzer-bot-v4"})
 
 
 @asynccontextmanager
@@ -997,6 +1232,8 @@ async def lifespan(app):
     telegram_app.add_handler(CommandHandler("resultat", resultat_command))
     telegram_app.add_handler(CommandHandler("bankroll", bankroll_command))
     telegram_app.add_handler(CommandHandler("statusapi", statusapi_command))
+    telegram_app.add_handler(CommandHandler("performance", performance_command))
+    telegram_app.add_handler(CommandHandler("validation", validate_command))
 
     await telegram_app.initialize()
     await telegram_app.start()
