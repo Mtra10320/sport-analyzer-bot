@@ -430,7 +430,7 @@ async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-                fixtures = fixture_data.get("response", [])
+        fixtures = fixture_data.get("response", [])
 
         if not fixtures:
             await update.message.reply_text(
