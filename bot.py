@@ -18,7 +18,7 @@ from starlette.routing import Route
 import uvicorn
 
 # ============================================================
-# SPORT ANALYZER V5
+# SPORT ANALYZER V6
 # Primary source: Football-Data.org
 # Fallback source: TheSportsDB
 # API-Football is intentionally not used by this version.
@@ -810,7 +810,7 @@ def build_analysis_message(data):
     sa = data["standings_away"]
 
     msg = (
-        "🔎 ANALYSE SPORT ANALYZER V5\n\n"
+        "🔎 ANALYSE SPORT ANALYZER V6\n\n"
         f"⚽ {home} - {away}\n"
         f"🏆 {comp}\n"
         f"📅 {date_text}\n"
@@ -901,10 +901,14 @@ def main_menu():
         ],
         [
             InlineKeyboardButton("💰 Bankroll", callback_data="menu:bankroll"),
-            InlineKeyboardButton("🔌 Sources", callback_data="menu:status"),
+            InlineKeyboardButton("🔬 Simulateur", callback_data="menu:sim"),
         ],
         [
+            InlineKeyboardButton("🔌 Sources", callback_data="menu:status"),
             InlineKeyboardButton("🔄 Validation", callback_data="menu:validation"),
+        ],
+        [
+            InlineKeyboardButton("⚙️ Outils", callback_data="menu:tools"),
             InlineKeyboardButton("❓ Aide", callback_data="menu:help"),
         ],
     ])
@@ -923,6 +927,7 @@ def match_keyboard(fixture_id):
         ],
         [
             InlineKeyboardButton("⚽ Buteurs", callback_data=f"buteur:{fid}"),
+            InlineKeyboardButton("🔬 Simuler", callback_data=f"sim:{fid}"),
         ],
         [InlineKeyboardButton("⬅️ Menu principal", callback_data="menu:home")],
     ])
@@ -946,6 +951,231 @@ def match_list_keyboard(matches):
     return InlineKeyboardMarkup(rows)
 
 
+def simulator_keyboard(fixture_id):
+    fid = str(fixture_id)
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🎯 1X2", callback_data=f"market:{fid}:1X2"),
+            InlineKeyboardButton("🔁 Double chance", callback_data=f"market:{fid}:DC"),
+        ],
+        [
+            InlineKeyboardButton("⚽ BTTS", callback_data=f"market:{fid}:BTTS"),
+            InlineKeyboardButton("📊 Over/Under", callback_data=f"market:{fid}:OU"),
+        ],
+        [
+            InlineKeyboardButton("🔎 Analyse", callback_data=f"analyse:{fid}"),
+            InlineKeyboardButton("⬅️ Match", callback_data=f"match:{fid}"),
+        ],
+    ])
+
+
+def stake_keyboard(fixture_id, market, selection):
+    fid = str(fixture_id)
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("5 €", callback_data=f"stake:{fid}:{market}:{selection}:5"),
+            InlineKeyboardButton("10 €", callback_data=f"stake:{fid}:{market}:{selection}:10"),
+        ],
+        [
+            InlineKeyboardButton("20 €", callback_data=f"stake:{fid}:{market}:{selection}:20"),
+            InlineKeyboardButton("50 €", callback_data=f"stake:{fid}:{market}:{selection}:50"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ Marchés", callback_data=f"sim:{fid}"),
+            InlineKeyboardButton("🏠 Menu", callback_data="menu:home"),
+        ],
+    ])
+
+
+def market_keyboard(fixture_id, market):
+    fid = str(fixture_id)
+    if market == "1X2":
+        choices = [("1", "1"), ("X", "X"), ("2", "2")]
+    elif market == "DC":
+        choices = [("1X", "1X"), ("X2", "X2"), ("12", "12")]
+    elif market == "BTTS":
+        choices = [("Oui", "BTTSY"), ("Non", "BTTSN")]
+    else:
+        choices = [
+            ("Over 1.5", "O15"), ("Over 2.5", "O25"),
+            ("Over 3.5", "O35"), ("Under 2.5", "U25"),
+            ("Under 3.5", "U35")
+        ]
+    rows = []
+    row = []
+    for label, code in choices:
+        row.append(InlineKeyboardButton(
+            label, callback_data=f"pick:{fid}:{market}:{code}"
+        ))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([
+        InlineKeyboardButton("⬅️ Simulateur", callback_data=f"sim:{fid}"),
+        InlineKeyboardButton("🏠 Menu", callback_data="menu:home"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def tools_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📈 Performance", callback_data="menu:performance"),
+            InlineKeyboardButton("🔄 Validation", callback_data="menu:validation"),
+        ],
+        [
+            InlineKeyboardButton("💶 Bankroll", callback_data="menu:bankroll"),
+            InlineKeyboardButton("🔌 Sources", callback_data="menu:status"),
+        ],
+        [InlineKeyboardButton("🏠 Menu principal", callback_data="menu:home")],
+    ])
+
+
+async def send_simulator_menu(message, fixture_id):
+    await message.reply_text(
+        "🔬 SIMULATEUR\n\n"
+        "Choisis le marché à étudier.\n"
+        "Les rendements calculés sont théoriques et utilisent "
+        "la probabilité du modèle.",
+        reply_markup=simulator_keyboard(fixture_id),
+    )
+
+
+async def send_market_menu(message, fixture_id, market):
+    data, error = await full_analysis(fixture_id)
+    if error:
+        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        return
+    model = data.get("model")
+    if not model:
+        await message.reply_text("❌ Données insuffisantes.", reply_markup=main_menu())
+        return
+
+    h, d, a = model["final"]
+    m = model["markets"]
+    if market == "1X2":
+        body = (
+            "🎯 1X2\n\n"
+            f"1 : {h:.1f}%\nX : {d:.1f}%\n2 : {a:.1f}%\n\n"
+            "Choisis une sélection :"
+        )
+    elif market == "DC":
+        body = (
+            "🔁 DOUBLE CHANCE\n\n"
+            f"1X : {h+d:.1f}%\nX2 : {d+a:.1f}%\n12 : {h+a:.1f}%\n\n"
+            "Choisis une sélection :"
+        )
+    elif market == "BTTS":
+        body = (
+            "⚽ BTTS\n\n"
+            f"Oui : {m['btts']:.1f}%\n"
+            f"Non : {100-m['btts']:.1f}%\n\n"
+            "Choisis une sélection :"
+        )
+    else:
+        body = (
+            "📊 OVER / UNDER\n\n"
+            f"Over 1.5 : {m['over15']:.1f}%\n"
+            f"Over 2.5 : {m['over25']:.1f}%\n"
+            f"Over 3.5 : {m['over35']:.1f}%\n"
+            f"Under 2.5 : {m['under25']:.1f}%\n"
+            f"Under 3.5 : {m['under35']:.1f}%\n\n"
+            "Choisis une sélection :"
+        )
+    await message.reply_text(body, reply_markup=market_keyboard(fixture_id, market))
+
+
+async def send_pick_stake_menu(message, fixture_id, market, selection):
+    data, error = await full_analysis(fixture_id)
+    if error:
+        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        return
+    model = data.get("model")
+    if not model:
+        await message.reply_text("❌ Données insuffisantes.", reply_markup=main_menu())
+        return
+
+    h, d, a = model["final"]
+    m = model["markets"]
+    values = {
+        "1": ("1", h), "X": ("X", d), "2": ("2", a),
+        "1X": ("1X", h+d), "X2": ("X2", d+a), "12": ("12", h+a),
+        "BTTSY": ("BTTS Oui", m["btts"]), "BTTSN": ("BTTS Non", 100-m["btts"]),
+        "O15": ("Over 1.5", m["over15"]), "O25": ("Over 2.5", m["over25"]),
+        "O35": ("Over 3.5", m["over35"]), "U25": ("Under 2.5", m["under25"]),
+        "U35": ("Under 3.5", m["under35"]),
+    }
+    label, probability = values.get(selection, ("Sélection", 0.0))
+    if probability <= 0:
+        await message.reply_text("❌ Probabilité indisponible.", reply_markup=main_menu())
+        return
+
+    fair = 100.0 / float(probability)
+    await message.reply_text(
+        "💶 SIMULATION\n\n"
+        f"🎯 Sélection : {label}\n"
+        f"📊 Probabilité modèle : {probability:.1f}%\n"
+        f"📐 Cote juste théorique : {fair:.2f}\n\n"
+        "Choisis une mise à simuler :",
+        reply_markup=stake_keyboard(fixture_id, market, selection),
+    )
+
+
+async def send_stake_result(message, fixture_id, market, selection, stake):
+    data, error = await full_analysis(fixture_id)
+    if error:
+        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        return
+    model = data.get("model")
+    if not model:
+        await message.reply_text("❌ Données insuffisantes.", reply_markup=main_menu())
+        return
+
+    h, d, a = model["final"]
+    m = model["markets"]
+    probs = {
+        "1": h, "X": d, "2": a,
+        "1X": h+d, "X2": d+a, "12": h+a,
+        "BTTSY": m["btts"], "BTTSN": 100-m["btts"],
+        "O15": m["over15"], "O25": m["over25"], "O35": m["over35"],
+        "U25": m["under25"], "U35": m["under35"],
+    }
+    labels = {
+        "1": "1", "X": "X", "2": "2", "1X": "1X", "X2": "X2", "12": "12",
+        "BTTSY": "BTTS Oui", "BTTSN": "BTTS Non",
+        "O15": "Over 1.5", "O25": "Over 2.5", "O35": "Over 3.5",
+        "U25": "Under 2.5", "U35": "Under 3.5",
+    }
+    probability = float(probs.get(selection, 0))
+    if probability <= 0:
+        await message.reply_text("❌ Probabilité indisponible.", reply_markup=main_menu())
+        return
+
+    fair = 100.0 / probability
+    total_return = float(stake) * fair
+    profit = total_return - float(stake)
+
+    await message.reply_text(
+        "🧮 SIMULATION\n\n"
+        f"🎯 {labels.get(selection, selection)}\n"
+        f"📊 Probabilité : {probability:.1f}%\n"
+        f"💶 Mise : {float(stake):.2f} €\n"
+        f"📐 Cote juste théorique : {fair:.2f}\n"
+        f"💰 Retour théorique : {total_return:.2f} €\n"
+        f"📈 Profit théorique : {profit:+.2f} €\n\n"
+        "ℹ️ Simulation statistique. Ce n'est pas une cote bookmaker.",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🔬 Autre marché", callback_data=f"sim:{fixture_id}"),
+                InlineKeyboardButton("🔎 Analyse", callback_data=f"analyse:{fixture_id}"),
+            ],
+            [InlineKeyboardButton("🏠 Menu principal", callback_data="menu:home")],
+        ]),
+    )
+
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -953,7 +1183,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu:home":
         await query.message.reply_text(
-            "🤖 SPORT ANALYZER V5\n\nChoisis une fonction :",
+            "🤖 SPORT ANALYZER V6\n\nChoisis une fonction :",
             reply_markup=main_menu(),
         )
         return
@@ -978,6 +1208,22 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_bankroll_result(query.message, update.effective_user.id)
         return
 
+    if data == "menu:sim":
+        await query.message.reply_text(
+            "🔬 SIMULATEUR\n\n"
+            "Ouvre un match depuis ⚽ Matchs du jour, "
+            "puis clique sur 🔬 Simuler.",
+            reply_markup=main_menu(),
+        )
+        return
+
+    if data == "menu:tools":
+        await query.message.reply_text(
+            "⚙️ OUTILS\n\nChoisis une fonction :",
+            reply_markup=tools_keyboard(),
+        )
+        return
+
     if data == "menu:help":
         await query.message.reply_text(
             "📚 AIDE RAPIDE\n\n"
@@ -986,7 +1232,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🎯 Probabilités : 1X2 et double chance.\n"
             "⚽ Buts : BTTS, Over/Under et xG.\n"
             "💰 Cotes : informations disponibles.\n"
-            "⚽ Buteurs : événements disponibles.\n"
+            "⚽ Buteurs : événements disponibles.\n"            "🔬 Simulateur : marchés et mises théoriques.\n"
             "📊 Performance : historique du modèle.\n"
             "🔄 Validation : validation des prédictions terminées.\n"
             "💶 Bankroll : suivi des mises.",
@@ -1000,6 +1246,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "match":
         await send_match_actions(query.message, value)
+    elif action == "sim":
+        await send_simulator_menu(query.message, value)
+    elif action == "market":
+        fid, market = value.split(":", 1)
+        await send_market_menu(query.message, fid, market)
+    elif action == "pick":
+        fid, market, selection = value.split(":", 2)
+        await send_pick_stake_menu(query.message, fid, market, selection)
+    elif action == "stake":
+        fid, market, selection, stake = value.split(":", 3)
+        await send_stake_result(query.message, fid, market, selection, float(stake))
     elif action == "analyse":
         await run_analysis_for_message(query.message, value, update.effective_user.id)
     elif action == "buts":
@@ -1290,7 +1547,7 @@ async def send_status_result(message):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 SPORT ANALYZER V5\n\n"
+        "🤖 SPORT ANALYZER V6\n\n"
         "Analyse football, probabilités, buts, cotes et suivi.\n\n"
         "Utilise les boutons ci-dessous pour naviguer.",
         reply_markup=main_menu(),
@@ -1298,7 +1555,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📊 SPORT ANALYZER V5\n\n"
+        "📊 SPORT ANALYZER V6\n\n"
         "/match = matchs du jour\n"
         "/analyse ID = analyse statistique\n"
         "/buts ID = BTTS, Over/Under et xG modèle\n"
@@ -1591,7 +1848,7 @@ async def webhook(request: Request):
 
 
 async def health(request: Request):
-    return JSONResponse({"status": "ok", "bot": "sport-analyzer-bot-v5"})
+    return JSONResponse({"status": "ok", "bot": "sport-analyzer-bot-v6"})
 
 
 @asynccontextmanager
