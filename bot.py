@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 import io
 
 import httpx
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from starlette.applications import Starlette
 from starlette.requests import Request
