@@ -7,18 +7,20 @@ import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from contextlib import asynccontextmanager
+import io
 
 import httpx
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 import uvicorn
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 # ============================================================
-# SPORT ANALYZER V11
+# SPORT ANALYZER V13
 # Primary source: Football-Data.org
 # Fallback source: TheSportsDB
 # API-Football is intentionally not used by this version.
@@ -799,7 +801,7 @@ async def full_analysis(fixture_id):
 
 
 def build_analysis_cards(data):
-    """Construit une analyse en cartes Telegram courtes et lisibles."""
+    """Dashboard V13 mobile-first, en cartes courtes."""
     match = data["match"]
     home = match["homeTeam"]["name"]
     away = match["awayTeam"]["name"]
@@ -813,101 +815,94 @@ def build_analysis_cards(data):
     hf = data.get("home_form") or []
     af = data.get("away_form") or []
 
-    # Carte 1: identité du match
+    form_h = " ".join(x.get("result", "?") for x in hf) if hf else "N/D"
+    form_a = " ".join(x.get("result", "?") for x in af) if af else "N/D"
+
+    # HERO: très compact, lisible immédiatement sur iPhone.
     card1 = (
-        "🔎 <b>SPORT ANALYZER V11</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚽ <b>{home}</b>\n"
-        f"   <i>vs</i> <b>{away}</b>\n\n"
+        "⚡ <b>SPORT ANALYZER • V13</b>\n"
+        "╭────────────────────────╮\n"
+        f"│  🏠 <b>{home}</b>\n"
+        f"│       <b>VS</b>\n"
+        f"│  ✈️ <b>{away}</b>\n"
+        "╰────────────────────────╯\n"
         f"🏆 {comp}\n"
-        f"📅 {date_text}\n"
-        f"🟢 <b>{status}</b>\n"
+        f"🗓 {date_text}   •   🟢 {status}\n"
         f"🆔 <code>{match.get('id')}</code>\n\n"
-        "📋 <b>CLASSEMENT</b>\n"
-        f"🏠 {sh.get('position', 'N/D')}e  •  {sh.get('points', 'N/D')} pts  •  {sh.get('gf', 'N/D')}-{sh.get('ga', 'N/D')}\n"
-        f"✈️ {sa.get('position', 'N/D')}e  •  {sa.get('points', 'N/D')} pts  •  {sa.get('gf', 'N/D')}-{sa.get('ga', 'N/D')}\n\n"
-        "📈 <b>FORME</b>\n"
-        f"🏠 {home}  :  " + (" ".join(x["result"] for x in hf) if hf else "N/D") + "\n"
-        f"✈️ {away}  :  " + (" ".join(x["result"] for x in af) if af else "N/D")
+        "📋 <b>FORME & CLASSEMENT</b>\n"
+        f"🏠 <b>{sh.get('position','N/D')}e</b>  {sh.get('points','N/D')} pts  •  {sh.get('gf','N/D')}-{sh.get('ga','N/D')}   {form_h}\n"
+        f"✈️ <b>{sa.get('position','N/D')}e</b>  {sa.get('points','N/D')} pts  •  {sa.get('gf','N/D')}-{sa.get('ga','N/D')}   {form_a}"
     )
 
     cards = [card1]
 
-    if model:
-        ph, pd, pa = model["final"]
-        m = model["markets"]
-        scores = likely_scores(model["matrix"], 3)
-
-        card2 = (
-            "🎯 <b>TABLEAU DES PROBABILITÉS</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            + probability_block([
-                ("1", ph), ("X", pd), ("2", pa),
-                ("1X", ph + pd), ("X2", pd + pa), ("12", ph + pa)
-            ], width=10)
-            + "\n\n"
-            "⚽ <b>MARCHÉS DE BUTS</b>\n"
-            + probability_block([
-                ("BTTS Oui", m["btts"]),
-                ("BTTS Non", 100 - m["btts"]),
-                ("Over 1.5", m["over15"]),
-                ("Over 2.5", m["over25"]),
-                ("Over 3.5", m["over35"]),
-                ("Under 2.5", m["under25"]),
-                ("Under 3.5", m["under35"])
-            ], width=10)
-            + f"\n\n📐 xG  <b>{model['home_xg']:.2f}</b>  —  <b>{model['away_xg']:.2f}</b>"
-        )
-        cards.append(card2)
-
-        score_lines = []
-        for h, a, p in scores:
-            score_lines.append(f"⚽ <b>{h}-{a}</b>   {prob_bar(p)}   <b>{p:.1f}%</b>")
-        score_text = "\n".join(score_lines) if score_lines else "N/D"
-
-        h2h = data.get("h2h") or []
-        if h2h:
-            wins_h = wins_a = draws = 0
-            for item in h2h:
-                hg, ag = score_pair(item)
-                if hg is None or ag is None:
-                    continue
-                hn = item.get("homeTeam", {}).get("name", "")
-                an = item.get("awayTeam", {}).get("name", "")
-                if hg == ag:
-                    draws += 1
-                elif (hn == home and hg > ag) or (an == home and ag > hg):
-                    wins_h += 1
-                else:
-                    wins_a += 1
-            h2h_text = (
-                f"🤝 <b>FACE À FACE</b>\n"
-                f"🏠 {home}  {wins_h}   •   Nuls {draws}   •   {wins_a}  {away}\n"
-                f"📊 {len(h2h)} match(s) disponible(s)"
-            )
-        else:
-            h2h_text = "🤝 <b>FACE À FACE</b>\nDonnées non disponibles."
-
-        card3 = (
-            "🔢 <b>SCORES LES PLUS PROBABLES</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            f"{score_text}\n\n"
-            f"🧠 <b>CONFIANCE</b>  {confidence_label(model['final'], data['quality'])}\n\n"
-            + h2h_text
-            + "\n\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "ℹ️ <i>Estimations statistiques, sans garantie de résultat.</i>"
-        )
-        cards.append(card3)
-    else:
+    if not model:
         cards.append(
-            "⚠️ <b>MODÈLE</b>\n"
+            "⚠️ <b>DONNÉES INSUFFISANTES</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "Données insuffisantes pour calculer les probabilités."
+            "Le modèle ne dispose pas de suffisamment de données."
         )
+        return cards
 
+    ph, pd, pa = model["final"]
+    m = model["markets"]
+    scores = likely_scores(model["matrix"], 3)
+
+    # PROBABILITÉS: séparation 1X2 / double chance.
+    card2 = (
+        "🎯 <b>PRÉVISION CENTRALE</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🏆 <b>1X2</b>\n"
+        + probability_block([
+            ("1", ph), ("X", pd), ("2", pa)
+        ], width=8)
+        + "\n\n"
+        "🔁 <b>DOUBLE CHANCE</b>\n"
+        + probability_block([
+            ("1X", ph + pd), ("X2", pd + pa), ("12", ph + pa)
+        ], width=8)
+    )
+
+    # BUTS: carte dédiée, plus respirante.
+    card3 = (
+        "⚽ <b>LABORATOIRE DES BUTS</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        + probability_block([
+            ("BTTS Oui", m["btts"]),
+            ("BTTS Non", 100 - m["btts"]),
+            ("Over 1.5", m["over15"]),
+            ("Over 2.5", m["over25"]),
+            ("Over 3.5", m["over35"]),
+            ("Under 2.5", m["under25"]),
+            ("Under 3.5", m["under35"])
+        ], width=8)
+        + f"\n\n📐 <b>xG</b>   {model['home_xg']:.2f}  •  {model['away_xg']:.2f}"
+    )
+
+    score_lines = []
+    for h, a, p in scores:
+        score_lines.append(f"⚽ <b>{h}-{a}</b>  {prob_bar(p, 8)}  <b>{p:.1f}%</b>")
+    score_text = "\n".join(score_lines) if score_lines else "Aucun score disponible."
+
+    confidence = confidence_label(model["final"], data["quality"])
+    h2h = data.get("h2h") or []
+    h2h_line = f"📊 {len(h2h)} rencontre(s) disponible(s)" if h2h else "📊 Données H2H non disponibles"
+
+    # INTELLIGENCE: scores + confiance + qualité.
+    card4 = (
+        "🧠 <b>INTELLIGENCE MATCH</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🔢 <b>Scores les plus probables</b>\n"
+        f"{score_text}\n\n"
+        f"🧠 <b>Confiance</b>  {confidence}\n"
+        f"🤝 <b>Face à face</b>  {h2h_line}\n"
+        f"💾 <b>Qualité données</b>  {data.get('quality','N/D')}\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "ℹ️ <i>Estimations statistiques. Aucun résultat n'est garanti.</i>"
+    )
+
+    cards.extend([card2, card3, card4])
     return cards
-
 
 def build_analysis_message(data):
     """Compatibilité avec les anciennes parties du bot."""
@@ -916,23 +911,22 @@ def build_analysis_message(data):
 def main_menu():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("⚽ MATCHS DU JOUR", callback_data="menu:match"),
-            InlineKeyboardButton("📊 PERFORMANCE", callback_data="menu:performance"),
+            InlineKeyboardButton("⚽  MATCHS DU JOUR", callback_data="menu:match"),
+            InlineKeyboardButton("🎯  ANALYSE", callback_data="menu:tools"),
         ],
         [
-            InlineKeyboardButton("💰 BANKROLL", callback_data="menu:bankroll"),
-            InlineKeyboardButton("🔬 SIMULATEUR", callback_data="menu:sim"),
+            InlineKeyboardButton("📊  PERFORMANCE", callback_data="menu:performance"),
+            InlineKeyboardButton("💰  BANKROLL", callback_data="menu:bankroll"),
         ],
         [
-            InlineKeyboardButton("🔌 SOURCES", callback_data="menu:status"),
-            InlineKeyboardButton("🔄 VALIDATION", callback_data="menu:validation"),
+            InlineKeyboardButton("🔬  SIMULATEUR", callback_data="menu:sim"),
+            InlineKeyboardButton("🔄  VALIDATION", callback_data="menu:validation"),
         ],
         [
-            InlineKeyboardButton("⚙️ OUTILS", callback_data="menu:tools"),
-            InlineKeyboardButton("❓ AIDE", callback_data="menu:help"),
+            InlineKeyboardButton("🔌  SOURCES", callback_data="menu:status"),
+            InlineKeyboardButton("❓  AIDE", callback_data="menu:help"),
         ],
     ])
-
 
 def match_keyboard(fixture_id):
     fid = str(fixture_id)
@@ -1231,7 +1225,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu:home":
         await query.message.reply_text(
-            "🤖 SPORT ANALYZER V11\n\nChoisis une fonction :",
+            "🤖 SPORT ANALYZER V13\n\nChoisis une fonction :",
             reply_markup=main_menu(),
         )
         return
@@ -1306,7 +1300,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         fid, market, selection, stake = value.split(":", 3)
         await send_stake_result(query.message, fid, market, selection, float(stake))
     elif action == "analyse":
-        await run_analysis_for_message(query.message, value, update.effective_user.id)
+        await run_analysis_dashboard_for_message(query.message, value, update.effective_user.id)
     elif action == "buts":
         await run_buts_for_message(query.message, value)
     elif action == "prob":
@@ -1395,6 +1389,356 @@ async def send_match_actions(message, fixture_id):
         reply_markup=match_keyboard(fixture_id),
     )
 
+
+
+# ============================================================
+# DASHBOARD GRAPHIQUE V13
+# Rendu PNG 1024x1536 pour reproduire le mockup mobile.
+# Telegram affiche ensuite ce PNG avec les boutons réellement cliquables.
+# ============================================================
+
+FONT_REG = "/usr/share/fonts/truetype/lato/Lato-Regular.ttf"
+FONT_MED = "/usr/share/fonts/truetype/lato/Lato-Medium.ttf"
+FONT_BOLD = "/usr/share/fonts/truetype/lato/Lato-Bold.ttf"
+FONT_ITALIC = "/usr/share/fonts/truetype/lato/Lato-Italic.ttf"
+
+
+def _font(path, size):
+    try:
+        return ImageFont.truetype(path, size)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def _fit_font(text, max_width, start_size, min_size=14):
+    size = start_size
+    while size > min_size:
+        f = _font(FONT_BOLD, size)
+        if f.getlength(str(text)) <= max_width:
+            return f
+        size -= 1
+    return _font(FONT_BOLD, min_size)
+
+
+def _rounded(draw, box, fill, outline=None, radius=22, width=2):
+    draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
+
+
+def _gradient_background(w, h):
+    img = Image.new("RGB", (w, h), (5, 14, 30))
+    px = img.load()
+    for y in range(h):
+        t = y / max(1, h - 1)
+        r = int(5 + 5 * t)
+        g = int(12 + 9 * t)
+        b = int(28 + 18 * t)
+        for x in range(w):
+            glow = int(8 * max(0, 1 - abs(x - w * .52) / (w * .62)))
+            px[x, y] = (r, g + glow // 3, min(55, b + glow))
+    return img
+
+
+def _background_pattern(draw, w, h):
+    # Motif discret type ballon / statistiques, volontairement très léger.
+    for y in range(35, h, 115):
+        for x in range(35, w, 130):
+            cx, cy = x, y
+            draw.ellipse((cx-16, cy-16, cx+16, cy+16), outline=(18, 54, 83), width=2)
+            draw.line((cx-9, cy, cx+9, cy), fill=(14, 48, 76), width=2)
+            draw.line((cx, cy-9, cx, cy+9), fill=(14, 48, 76), width=2)
+
+
+def _draw_title(draw, text, xy, size=25):
+    draw.text(xy, text, font=_font(FONT_BOLD, size), fill=(245, 248, 255))
+
+
+def _draw_bar(draw, x, y, w, h, value, fill_color, label=None, label_x=None):
+    value = clamp(float(value))
+    _rounded(draw, (x, y, x+w, y+h), (27, 48, 76), radius=h//2)
+    fw = max(2, int(w * value / 100)) if value > 0 else 0
+    if fw:
+        _rounded(draw, (x, y, x+fw, y+h), fill_color, radius=h//2)
+    if label is not None:
+        draw.text((label_x if label_x is not None else x+w+15, y-3), label,
+                  font=_font(FONT_BOLD, 22), fill=fill_color)
+
+
+def _bar_color(value):
+    if value >= 60:
+        return (27, 235, 82)
+    if value >= 30:
+        return (255, 203, 22)
+    return (255, 67, 67)
+
+
+def _draw_prob_card(draw, box, model):
+    x1, y1, x2, y2 = box
+    _rounded(draw, box, (9, 26, 49), outline=(47, 112, 168), radius=24, width=2)
+    _draw_title(draw, "🎯  PROBABILITÉS MODÈLE", (x1+24, y1+20), 25)
+    draw.ellipse((x2-53, y1+18, x2-23, y1+48), fill=(31, 67, 101), outline=(86, 137, 177))
+    draw.text((x2-43, y1+21), "i", font=_font(FONT_BOLD, 19), fill=(230,240,255))
+
+    home, drawp, away = model["final"]
+    rows = [("1", home), ("X", drawp), ("2", away), ("1X", home+drawp), ("X2", drawp+away), ("12", home+away)]
+    yy = y1 + 72
+    for i, (lab, val) in enumerate(rows):
+        if i == 3:
+            draw.line((x1+24, yy-15, x2-24, yy-15), fill=(71, 107, 139), width=2)
+            yy += 14
+        draw.rounded_rectangle((x1+24, yy, x1+62, yy+35), radius=7, fill=(34, 105, 169))
+        draw.text((x1+34, yy+3), lab, font=_font(FONT_BOLD, 21), fill=(245,248,255))
+        color = (0, 218, 255) if lab == "12" else _bar_color(val)
+        _draw_bar(draw, x1+82, yy+5, 260, 26, val, color)
+        draw.text((x1+365, yy-1), f"{val:.1f}%", font=_font(FONT_BOLD, 22), fill=color)
+        yy += 48
+
+
+def _draw_goals_card(draw, box, model):
+    x1, y1, x2, y2 = box
+    _rounded(draw, box, (9, 26, 49), outline=(47, 112, 168), radius=24, width=2)
+    _draw_title(draw, "⚽  MARCHÉS DE BUTS", (x1+24, y1+20), 25)
+    m = model["markets"]
+    rows = [
+        ("BTTS Oui", m["btts"]), ("BTTS Non", 100-m["btts"]),
+        ("Over 1.5", m["over15"]), ("Over 2.5", m["over25"]),
+        ("Over 3.5", m["over35"]), ("Under 2.5", m["under25"]),
+        ("Under 3.5", m["under35"]),
+    ]
+    yy = y1 + 72
+    for lab, val in rows:
+        color = _bar_color(val)
+        draw.text((x1+24, yy-2), lab, font=_font(FONT_MED, 19), fill=(246,248,255))
+        _draw_bar(draw, x1+140, yy+1, 215, 25, val, color)
+        draw.text((x1+370, yy-2), f"{val:.1f}%", font=_font(FONT_BOLD, 20), fill=color)
+        yy += 43
+    draw.text((x1+24, y2-49), f"📐  xG estimé : {model['home_xg']:.2f}  —  {model['away_xg']:.2f}",
+              font=_font(FONT_BOLD, 19), fill=(238,245,255))
+
+
+def _draw_scores_card(draw, box, model):
+    x1, y1, x2, y2 = box
+    _rounded(draw, box, (9, 26, 49), outline=(47, 112, 168), radius=24, width=2)
+    _draw_title(draw, "🔢  SCORES LES PLUS PROBABLES", (x1+24, y1+20), 22)
+    scores = likely_scores(model["matrix"], 3)
+    yy = y1 + 78
+    for h, a, p in scores:
+        draw.text((x1+40, yy), f"⚽ {h}-{a}", font=_font(FONT_BOLD, 21), fill=(245,248,255))
+        _draw_bar(draw, x1+120, yy+3, 235, 25, p, (0, 193, 239))
+        draw.text((x1+370, yy-1), f"{p:.1f}%", font=_font(FONT_BOLD, 20), fill=(235,244,255))
+        yy += 57
+
+
+def _draw_status_card(draw, box, data, model):
+    x1, y1, x2, y2 = box
+    _rounded(draw, box, (9, 26, 49), outline=(47, 112, 168), radius=24, width=2)
+    confidence = confidence_label(model["final"], data.get("quality", 0))
+    spread = max(model["final"]) - min(model["final"])
+    trend = "Équilibré" if spread < 20 else "Tendance marquée"
+    reliability = "Bonne" if data.get("quality", 0) >= .65 else ("Moyenne" if data.get("quality", 0) >= .4 else "Faible")
+    items = [("🧠", "Confiance", confidence, (255,205,25)),
+             ("📊", "Tendance", trend, (115,154,210)),
+             ("🛡", "Fiabilité", reliability, (28,221,92))]
+    yy = y1 + 27
+    for icon, lab, val, color in items:
+        draw.text((x1+24, yy), icon, font=_font(FONT_BOLD, 22), fill=(245,248,255))
+        draw.text((x1+63, yy+2), lab, font=_font(FONT_MED, 19), fill=(245,248,255))
+        vw = 128
+        _rounded(draw, (x2-vw-20, yy-3, x2-20, yy+32), color, radius=17)
+        vf = _font(FONT_BOLD, 17)
+        tw = vf.getlength(val)
+        draw.text((x2-vw/2-10-tw/2, yy+2), val, font=vf, fill=(10,18,30))
+        yy += 49
+    _rounded(draw, (x1+20, y2-78, x2-20, y2-18), (12, 37, 66), outline=(55,133,187), radius=15, width=1)
+    draw.text((x1+32, y2-68), "❝", font=_font(FONT_BOLD, 27), fill=(145,205,255))
+    draw.multiline_text((x1+66, y2-67),
+                        "Les probabilités sont des estimations\nstatistiques calculées à partir des données disponibles.",
+                        font=_font(FONT_ITALIC, 14), fill=(205,220,239), spacing=2)
+
+
+def _paste_logo(base, url, box, fallback_text):
+    try:
+        import urllib.request
+        with urllib.request.urlopen(url, timeout=5) as response:
+            raw = response.read()
+        logo = Image.open(io.BytesIO(raw)).convert("RGBA")
+        logo.thumbnail((box[2]-box[0], box[3]-box[1]), Image.Resampling.LANCZOS)
+        x = box[0] + ((box[2]-box[0])-logo.width)//2
+        y = box[1] + ((box[3]-box[1])-logo.height)//2
+        base.paste(logo, (x, y), logo)
+        return True
+    except Exception:
+        return False
+
+
+def render_analysis_dashboard(data, home_logo=None, away_logo=None):
+    W, H = 1024, 1536
+    img = _gradient_background(W, H)
+    draw = ImageDraw.Draw(img)
+    _background_pattern(draw, W, H)
+
+    white = (244, 247, 255)
+    cyan = (0, 218, 255)
+    blue = (24, 95, 170)
+    panel = (7, 25, 47)
+
+    match = data["match"]
+    home = match.get("homeTeam", {}).get("name", "Domicile")
+    away = match.get("awayTeam", {}).get("name", "Extérieur")
+    comp = match.get("competition", {}).get("name", "Football")
+    dt = fd_dt(match)
+    date_text = dt.strftime("%d/%m/%Y  •  %H:%M") if dt else "Horaire N/D"
+    status = fd_status(match.get("status"))
+    model = data.get("model") or {"final": (33.3,33.4,33.3), "markets": {"btts":50,"over15":50,"over25":50,"over35":50,"under25":50,"under35":50}, "home_xg":1.0,"away_xg":1.0,"matrix":poisson_matrix(1,1)}
+    sh = data.get("standings_home") or {}
+    sa = data.get("standings_away") or {}
+    hf = data.get("home_form") or []
+    af = data.get("away_form") or []
+
+    # Header
+    _rounded(draw, (42, 32, 982, 132), (5, 23, 45), outline=(35, 190, 235), radius=48, width=2)
+    draw.ellipse((63, 47, 123, 107), outline=cyan, width=4, fill=(8, 40, 65))
+    draw.text((77, 59), "⚽", font=_font(FONT_BOLD, 31), fill=white)
+    draw.text((142, 49), "Sport Analyzer", font=_font(FONT_BOLD, 27), fill=white)
+    draw.text((143, 82), "bot", font=_font(FONT_REG, 18), fill=(180,201,224))
+    draw.text((690, 55), "▂▅▇▇", font=_font(FONT_BOLD, 25), fill=(0, 218, 255))
+    draw.text((755, 53), "Des données\ndes analyses\nd'opportunités", font=_font(FONT_REG, 14), fill=(218,229,245), spacing=1)
+
+    # Hero
+    hero = (42, 153, 982, 405)
+    _rounded(draw, hero, panel, outline=(0, 202, 255), radius=26, width=2)
+    draw.text((63, 174), "🏆", font=_font(FONT_BOLD, 25), fill=(255,203,22))
+    draw.text((108, 176), comp.upper(), font=_font(FONT_BOLD, 20), fill=white)
+    draw.text((108, 208), f"Journée  •  {date_text}", font=_font(FONT_REG, 17), fill=(195,211,231))
+    draw.text((641, 180), f"ID: {match.get('id')}", font=_font(FONT_BOLD, 17), fill=white)
+    _rounded(draw, (797, 173, 957, 213), (8, 50, 52), outline=(0, 239, 151), radius=20, width=2)
+    draw.text((817, 183), f"🟢 {status}", font=_font(FONT_BOLD, 16), fill=(0,239,151))
+
+    # Team zone
+    hf_txt = " ".join(x.get("result", "?") for x in hf[-5:]) if hf else "N/D"
+    af_txt = " ".join(x.get("result", "?") for x in af[-5:]) if af else "N/D"
+    draw.text((163, 250), home, font=_fit_font(home, 310, 24, 17), fill=white)
+    draw.text((721, 250), away, font=_fit_font(away, 210, 23, 16), fill=white)
+    draw.text((163, 285), f"{sh.get('position','N/D')}e  •  {sh.get('points','N/D')} pts  •  {sh.get('gf','N/D')}-{sh.get('ga','N/D')}", font=_font(FONT_REG, 16), fill=(199,215,234))
+    draw.text((721, 285), f"{sa.get('position','N/D')}e  •  {sa.get('points','N/D')} pts  •  {sa.get('gf','N/D')}-{sa.get('ga','N/D')}", font=_font(FONT_REG, 16), fill=(199,215,234))
+    draw.text((481, 251), "VS", font=_font(FONT_BOLD, 28), fill=white)
+    draw.text((456, 290), dt.strftime("%d/%m/%Y") if dt else "N/D", font=_font(FONT_REG, 14), fill=(193,210,231))
+    draw.text((482, 314), dt.strftime("%H:%M") if dt else "N/D", font=_font(FONT_REG, 16), fill=white)
+    draw.text((163, 329), hf_txt, font=_font(FONT_BOLD, 16), fill=(231,240,250))
+    draw.text((721, 329), af_txt, font=_font(FONT_BOLD, 16), fill=(231,240,250))
+    draw.text((470, 350), "🏟", font=_font(FONT_BOLD, 22), fill=(155,184,215))
+    venue = (match.get("venue") or {}).get("name") or "Stade"
+    draw.multiline_text((505, 350), venue[:28], font=_font(FONT_REG, 14), fill=(206,220,239), spacing=1)
+
+    # Logos fetched only if URL is supplied by the source.
+    if home_logo:
+        _paste_logo(img, home_logo, (62, 245, 145, 335), "H")
+    else:
+        draw.ellipse((70, 245, 145, 320), fill=(20,75,116), outline=cyan, width=2)
+        draw.text((93, 263), home[:1].upper(), font=_font(FONT_BOLD, 30), fill=white)
+    if away_logo:
+        _paste_logo(img, away_logo, (640, 245, 710, 315), "A")
+    else:
+        draw.ellipse((638, 245, 708, 315), fill=(20,75,116), outline=cyan, width=2)
+        draw.text((662, 263), away[:1].upper(), font=_font(FONT_BOLD, 30), fill=white)
+
+    # Tabs visual, same proportions as the reference.
+    tabs = [(42, "Vue d'ensemble"), (286, "📊  Statistiques"), (523, "⚽  Face à face"), (761, "⚽  Compos")]
+    for i, (x, lab) in enumerate(tabs):
+        fill = (35, 69, 126) if i == 0 else (11, 34, 60)
+        outline = (70, 181, 255) if i == 0 else (49, 86, 124)
+        _rounded(draw, (x, 418, x+224, 475), fill, outline=outline, radius=18, width=2)
+        draw.text((x+24, 434), lab, font=_font(FONT_BOLD if i==0 else FONT_MED, 16), fill=white)
+
+    _draw_prob_card(draw, (42, 488, 510, 885), model)
+    _draw_goals_card(draw, (532, 488, 982, 885), model)
+    _draw_scores_card(draw, (42, 902, 510, 1164), model)
+    _draw_status_card(draw, (532, 902, 982, 1164), data, model)
+
+    # Footer buttons are also represented in the image, then duplicated as real Telegram buttons.
+    buttons = [
+        (42, 1182, 347, 1244, "🔎  Analyse", (73,35,218)),
+        (359, 1182, 664, 1244, "🎯  Probabilités", (23,66,126)),
+        (677, 1182, 982, 1244, "⚽  Buts", (23,66,126)),
+        (42, 1255, 347, 1317, "💰  Cotes", (23,66,126)),
+        (359, 1255, 664, 1317, "⚽  Buteurs", (23,66,126)),
+        (677, 1255, 982, 1317, "🔬  Simuler", (23,66,126)),
+        (42, 1330, 982, 1388, "⬅️  Menu principal", (13,73,151)),
+    ]
+    for bx1, by1, bx2, by2, lab, fill in buttons:
+        _rounded(draw, (bx1,by1,bx2,by2), fill, outline=(0,191,255), radius=16, width=2)
+        f = _font(FONT_BOLD, 18)
+        tw = f.getlength(lab)
+        draw.text(((bx1+bx2-tw)/2, by1+18), lab, font=f, fill=white)
+
+    draw.text((52, 1430), "“Analyse aujourd'hui, de meilleures décisions demain.”", font=_font(FONT_ITALIC, 14), fill=(181,199,222))
+    draw.text((824, 1430), "Sport Analyzer V13  ▂▅▇", font=_font(FONT_ITALIC, 13), fill=(181,199,222))
+    return img
+
+
+async def fetch_crest(url):
+    if not url:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(url)
+            if r.status_code == 200 and r.content:
+                return r.content
+    except Exception:
+        pass
+    return None
+
+
+async def run_analysis_dashboard_for_message(message, fixture_id, user_id):
+    data, error = await full_analysis(fixture_id)
+    if error:
+        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        return
+
+    record_model_predictions(user_id, data)
+    await validate_predictions()
+
+    home_url = (data.get("match", {}).get("homeTeam", {}) or {}).get("crest")
+    away_url = (data.get("match", {}).get("awayTeam", {}) or {}).get("crest")
+    home_bytes = await fetch_crest(home_url)
+    away_bytes = await fetch_crest(away_url)
+    home_logo = away_logo = None
+    # PIL accepte directement les bytes. On les conserve dans data temporairement.
+    if home_bytes:
+        home_logo = "bytes://home"
+    if away_bytes:
+        away_logo = "bytes://away"
+
+    # Dessin avec logos locaux, sans dépendre d'un navigateur.
+    W, H = 1024, 1536
+    img = render_analysis_dashboard(data, None, None)
+    if home_bytes or away_bytes:
+        # Re-rendu avec collage des logos depuis les bytes, pour éviter toute URL réseau dans le renderer.
+        img = render_analysis_dashboard(data, None, None)
+        if home_bytes:
+            try:
+                logo = Image.open(io.BytesIO(home_bytes)).convert("RGBA")
+                logo.thumbnail((82,82), Image.Resampling.LANCZOS)
+                img.paste(logo, (103-logo.width//2, 285-logo.height//2), logo)
+            except Exception:
+                pass
+        if away_bytes:
+            try:
+                logo = Image.open(io.BytesIO(away_bytes)).convert("RGBA")
+                logo.thumbnail((70,70), Image.Resampling.LANCZOS)
+                img.paste(logo, (673-logo.width//2, 280-logo.height//2), logo)
+            except Exception:
+                pass
+
+    output = io.BytesIO()
+    output.name = "sport_analyzer_v13.png"
+    img.save(output, format="PNG", optimize=True)
+    output.seek(0)
+    await message.reply_photo(
+        photo=BufferedInputFile(output.getvalue(), filename="sport_analyzer_v13.png"),
+        caption="⚡ <b>SPORT ANALYZER • V13</b>\nInterface graphique mobile • données dynamiques",
+        parse_mode="HTML",
+        reply_markup=match_keyboard(fixture_id),
+    )
 
 async def run_analysis_for_message(message, fixture_id, user_id):
     await message.reply_text("🔎 Analyse en cours…")
@@ -1603,18 +1947,20 @@ async def send_status_result(message):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 <b>SPORT ANALYZER V11</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "⚽ <b>FOOTBALL INTELLIGENCE</b>\n\n"
-        "📊 Analyse  •  🎯 Probabilités  •  ⚽ Buts\n"
-        "💰 Cotes  •  🔬 Simulation  •  📈 Suivi\n\n"
-        "👇 <b>CHOISIS UNE FONCTION</b>",
+        "⚡ <b>SPORT ANALYZER • V13</b>\n"
+        "╭────────────────────────╮\n"
+        "│ ⚽ <b>FOOTBALL INTELLIGENCE</b>\n"
+        "│ 🎯 Probabilités  •  ⚽ Buts\n"
+        "│ 💰 Cotes  •  🔬 Simulation\n"
+        "╰────────────────────────╯\n\n"
+        "👇 <b>CHOISIS TON MODULE</b>",
+        parse_mode="HTML",
         reply_markup=main_menu(),
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📊 SPORT ANALYZER V11\n\n"
+        "📊 SPORT ANALYZER V13\n\n"
         "/match = matchs du jour\n"
         "/analyse ID = analyse statistique\n"
         "/buts ID = BTTS, Over/Under et xG modèle\n"
@@ -1676,20 +2022,8 @@ async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "ℹ️ Cet ID vient de TheSportsDB. Pour l'analyse complète, utilise un ID Football-Data.org."
         )
         return
-    await update.message.reply_text("🔎 Analyse en cours...")
-    data, error = await full_analysis(fixture_id)
-    if error:
-        await update.message.reply_text(f"❌ {error}")
-        return
-    record_model_predictions(update.effective_user.id, data)
-    await validate_predictions()
-    cards = build_analysis_cards(data)
-    for i, card in enumerate(cards):
-        await update.message.reply_text(
-            card,
-            parse_mode="HTML",
-            reply_markup=match_keyboard(fixture_id) if i == len(cards) - 1 else None,
-        )
+    await update.message.reply_text("🔎 Génération du dashboard…")
+    await run_analysis_dashboard_for_message(update.message, fixture_id, update.effective_user.id)
 
 
 async def buts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1908,7 +2242,7 @@ async def webhook(request: Request):
 
 
 async def health(request: Request):
-    return JSONResponse({"status": "ok", "bot": "sport-analyzer-bot-v10"})
+    return JSONResponse({"status": "ok", "bot": "sport-analyzer-bot-v13"})
 
 
 @asynccontextmanager
