@@ -1,4 +1,3 @@
-
 import os
 import math
 import sqlite3
@@ -20,7 +19,7 @@ import uvicorn
 from PIL import Image, ImageDraw, ImageFont
 
 # ============================================================
-# SPORT ANALYZER V13.2
+# SPORT ANALYZER V13.3
 # Optimized mobile dashboard
 # Sources: Football-Data.org + TheSportsDB fallback
 # ============================================================
@@ -491,7 +490,7 @@ async def send_match_results(message):
         await message.reply_text("⚽ Aucun match disponible aujourd'hui.", reply_markup=main_menu()); return
     img=render_match_list(matches,source)
     out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nMatchs du jour",parse_mode="HTML",reply_markup=match_list_keyboard(matches))
+    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nMatchs du jour",parse_mode="HTML",reply_markup=match_list_keyboard(matches))
 
 
 async def send_match_actions(message, fid):
@@ -502,7 +501,7 @@ async def send_match_actions(message, fid):
     if error or not item:
         await message.reply_text(f"❌ Match introuvable : {fid}", reply_markup=main_menu()); return
     img=render_match_selected(item,fid); out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nMatch sélectionné",parse_mode="HTML",reply_markup=match_keyboard(fid))
+    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nMatch sélectionné",parse_mode="HTML",reply_markup=match_keyboard(fid))
 
 
 async def run_prob_for_message(message, fid):
@@ -515,7 +514,7 @@ async def run_prob_for_message(message, fid):
         {"kind":"bars","heading":"1X2","height":230,"rows":[("1",h),("X",d),("2",a)]},
         {"kind":"bars","heading":"DOUBLE CHANCE","height":230,"rows":[("1X",h+d),("X2",d+a),("12",h+a)]}])
     out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nProbabilités",parse_mode="HTML",reply_markup=match_keyboard(fid))
+    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nProbabilités",parse_mode="HTML",reply_markup=match_keyboard(fid))
 
 
 async def run_buts_for_message(message,fid):
@@ -529,7 +528,7 @@ async def run_buts_for_message(message,fid):
         {"kind":"bars","heading":"OVER / UNDER","height":330,"rows":[("Over 1.5",m["over15"]),("Over 2.5",m["over25"]),("Over 3.5",m["over35"]),("Under 2.5",m["under25"]),("Under 3.5",m["under35"])]},
         {"kind":"card","heading":"xG ESTIMÉ","height":120,"rows":[("Domicile",f"{model['home_xg']:.2f}"),("Extérieur",f"{model['away_xg']:.2f}")]}])
     out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nMarchés de buts",parse_mode="HTML",reply_markup=match_keyboard(fid))
+    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nMarchés de buts",parse_mode="HTML",reply_markup=match_keyboard(fid))
 
 
 async def run_cotes_for_message(message,fid):
@@ -538,7 +537,7 @@ async def run_cotes_for_message(message,fid):
         {"kind":"card","heading":"SAISIE MANUELLE","height":160,"rows":[("Commande","/mise ID marché sélection montant cote"),("Exemple","/mise 123 1X2 1 10 1.80")]}
     ])
     out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nCotes",parse_mode="HTML",reply_markup=match_keyboard(fid))
+    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nCotes",parse_mode="HTML",reply_markup=match_keyboard(fid))
 
 
 async def run_buteur_for_message(message,fid):
@@ -560,135 +559,223 @@ async def run_buteur_for_message(message,fid):
     await message.reply_text(msg,parse_mode="HTML",reply_markup=match_keyboard(fid))
 
 # -------------------------
-# Dashboard renderer
+# -------------------------
+# Dashboard renderer V13.3 - high legibility
 # -------------------------
 
-FONT_REG="/usr/share/fonts/truetype/lato/Lato-Regular.ttf"; FONT_MED="/usr/share/fonts/truetype/lato/Lato-Medium.ttf"; FONT_BOLD="/usr/share/fonts/truetype/lato/Lato-Bold.ttf"; FONT_ITALIC="/usr/share/fonts/truetype/lato/Lato-Italic.ttf"
+FONT_REG="/usr/share/fonts/truetype/lato/Lato-Regular.ttf"
+FONT_MED="/usr/share/fonts/truetype/lato/Lato-Medium.ttf"
+FONT_BOLD="/usr/share/fonts/truetype/lato/Lato-Bold.ttf"
+FONT_ITALIC="/usr/share/fonts/truetype/lato/Lato-Italic.ttf"
 
 
-def font(path,size):
-    try: return ImageFont.truetype(path,size)
-    except Exception: return ImageFont.load_default()
+def font(path, size):
+    try:
+        return ImageFont.truetype(path, size)
+    except Exception:
+        return ImageFont.load_default()
 
 
-def rounded(d,box,fill,outline=None,radius=22,width=2): d.rounded_rectangle(box,radius=radius,fill=fill,outline=outline,width=width)
+def rounded(d, box, fill, outline=None, radius=22, width=2):
+    d.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
 
 
-def background(w,h):
-    img=Image.new("RGB",(w,h),(5,14,30)); px=img.load()
+def background(w, h):
+    img=Image.new("RGB", (w,h), (4,13,29)); px=img.load()
     for y in range(h):
-        t=y/max(1,h-1); r=int(5+5*t); g=int(12+9*t); b=int(28+18*t)
+        t=y/max(1,h-1)
+        r=int(4+4*t); g=int(11+8*t); b=int(27+20*t)
         for x in range(w):
-            glow=int(8*max(0,1-abs(x-w*.52)/(w*.62))); px[x,y]=(r,g+glow//3,min(55,b+glow))
+            glow=int(10*max(0,1-abs(x-w*.52)/(w*.68)))
+            px[x,y]=(r, min(48,g+glow//3), min(62,b+glow))
     return img
 
 
 def pattern(d,w,h):
     for y in range(35,h,115):
         for x in range(35,w,130):
-            d.ellipse((x-16,y-16,x+16,y+16),outline=(18,54,83),width=2); d.line((x-9,y,x+9,y),fill=(14,48,76),width=2); d.line((x,y-9,x,y+9),fill=(14,48,76),width=2)
+            d.ellipse((x-15,y-15,x+15,y+15), outline=(17,52,82), width=2)
+            d.line((x-8,y,x+8,y), fill=(13,45,74), width=2)
+            d.line((x,y-8,x,y+8), fill=(13,45,74), width=2)
 
 
 def bar(d,x,y,w,h,value,color):
-    rounded(d,(x,y,x+w,y+h),(27,48,76),radius=h//2); fw=int(w*clamp(value)/100) if value>0 else 0
-    if fw: rounded(d,(x,y,x+fw,y+h),color,radius=h//2)
+    rounded(d,(x,y,x+w,y+h),(25,47,75),radius=h//2)
+    fw=int(w*clamp(value)/100)
+    if fw>0:
+        rounded(d,(x,y,x+fw,y+h),color,radius=h//2)
 
 
-def bar_color(v): return (27,235,82) if v>=60 else (255,203,22) if v>=30 else (255,67,67)
+def bar_color(v):
+    return (27,235,82) if v>=60 else (255,203,22) if v>=30 else (255,67,67)
+
+
+def text_fit(d,text,fnt,max_width):
+    text=str(text)
+    if d.textlength(text,font=fnt)<=max_width:
+        return text
+    while len(text)>4 and d.textlength(text+"…",font=fnt)>max_width:
+        text=text[:-1]
+    return text+"…"
+
+
+def draw_header(d):
+    white=(244,247,255); muted=(181,199,222); cyan=(0,218,255)
+    rounded(d,(38,28,986,142),(5,24,46),outline=(35,190,235),radius=50,width=3)
+    d.ellipse((62,49,128,115),outline=cyan,width=4,fill=(8,43,70))
+    d.text((83,62),"S",font=font(FONT_BOLD,30),fill=white)
+    d.text((150,50),"Sport Analyzer",font=font(FONT_BOLD,31),fill=white)
+    d.text((151,88),"bot",font=font(FONT_REG,20),fill=muted)
+    d.text((680,57),"DATA",font=font(FONT_BOLD,22),fill=cyan)
+    d.multiline_text((758,50),"Des données\ndes analyses\nd'opportunités",font=font(FONT_MED,16),fill=white,spacing=2)
+
+
+def draw_title(d,title,subtitle=""):
+    white=(244,247,255); muted=(181,199,222); cyan=(0,218,255); panel=(7,25,47)
+    rounded(d,(38,164,986,276),panel,outline=cyan,radius=25,width=2)
+    d.text((66,184),text_fit(d,title,font(FONT_BOLD,34),880),font=font(FONT_BOLD,34),fill=white)
+    if subtitle:
+        d.text((66,228),text_fit(d,subtitle,font(FONT_MED,20),880),font=font(FONT_MED,20),fill=muted)
 
 
 def render_dashboard(data):
-    W,H=1024,1536; img=background(W,H); d=ImageDraw.Draw(img); pattern(d,W,H); white=(244,247,255); cyan=(0,218,255); panel=(7,25,47)
-    match=data["match"]; home=match.get("homeTeam",{}).get("name","Domicile"); away=match.get("awayTeam",{}).get("name","Extérieur"); comp=match.get("competition",{}).get("name","Football"); dt=fd_dt(match); status=fd_status(match.get("status")); model=data.get("model")
-    if not model: model={"final":(33.3,33.4,33.3),"markets":{"btts":50,"over15":50,"over25":50,"over35":50,"under25":50,"under35":50},"home_xg":1,"away_xg":1,"matrix":poisson_matrix(1,1)}
-    sh=data.get("standings_home") or {}; sa=data.get("standings_away") or {}; hf=data.get("home_form") or []; af=data.get("away_form") or []
-    rounded(d,(42,32,982,132),(5,23,45),outline=(35,190,235),radius=48,width=2); d.ellipse((63,47,123,107),outline=cyan,width=4,fill=(8,40,65)); d.text((78,60),"S",font=font(FONT_BOLD,27),fill=white); d.text((142,49),"Sport Analyzer",font=font(FONT_BOLD,27),fill=white); d.text((143,82),"bot",font=font(FONT_REG,18),fill=(180,201,224)); d.text((690,55),"====",font=font(FONT_BOLD,25),fill=cyan); d.multiline_text((755,53),"Des données\ndes analyses\nd'opportunités",font=font(FONT_REG,14),fill=(218,229,245),spacing=1)
-    rounded(d,(42,153,982,405),panel,outline=cyan,radius=26,width=2); d.text((68,177),"*",font=font(FONT_BOLD,20),fill=(255,203,22)); d.text((108,176),comp.upper()[:30],font=font(FONT_BOLD,20),fill=white); d.text((108,208),f"Journée  •  {dt.strftime('%d/%m/%Y  •  %H:%M') if dt else 'Horaire N/D'}",font=font(FONT_REG,17),fill=(195,211,231)); d.text((641,180),f"ID: {match.get('id')}",font=font(FONT_BOLD,17),fill=white); rounded(d,(797,173,957,213),(8,50,52),outline=(0,239,151),radius=20,width=2); d.text((817,183),f"● {status}",font=font(FONT_BOLD,16),fill=(0,239,151))
-    d.text((163,250),home,font=font(FONT_BOLD,23),fill=white); d.text((721,250),away,font=font(FONT_BOLD,21),fill=white); d.text((163,285),f"{sh.get('position','N/D')}e • {sh.get('points','N/D')} pts • {sh.get('gf','N/D')}-{sh.get('ga','N/D')}",font=font(FONT_REG,16),fill=(199,215,234)); d.text((721,285),f"{sa.get('position','N/D')}e • {sa.get('points','N/D')} pts • {sa.get('gf','N/D')}-{sa.get('ga','N/D')}",font=font(FONT_REG,16),fill=(199,215,234)); d.text((481,251),"VS",font=font(FONT_BOLD,28),fill=white); d.text((163,329)," ".join(x.get("result","?") for x in hf[-5:]) or "N/D",font=font(FONT_BOLD,16),fill=white); d.text((721,329)," ".join(x.get("result","?") for x in af[-5:]) or "N/D",font=font(FONT_BOLD,16),fill=white)
-    for cx,cy,label in [(103,282,home[:1]),(673,280,away[:1])]: d.ellipse((cx-36,cy-36,cx+36,cy+36),fill=(20,75,116),outline=cyan,width=2); d.text((cx-10,cy-21),label.upper() or "?",font=font(FONT_BOLD,30),fill=white)
-    venue=(match.get("venue") or {}).get("name") or "Stade"; d.text((470,350),"[ ]",font=font(FONT_BOLD,18),fill=(155,184,215)); d.text((505,350),venue[:28],font=font(FONT_REG,14),fill=(206,220,239))
-    tabs=[(42,"Vue d'ensemble"),(286,"STATISTIQUES"),(523,"FACE À FACE"),(761,"COMPOS")]
-    for i,(x,lab) in enumerate(tabs): rounded(d,(x,418,x+224,475),(35,69,126) if i==0 else (11,34,60),outline=(70,181,255) if i==0 else (49,86,124),radius=18,width=2); d.text((x+24,434),lab,font=font(FONT_BOLD if i==0 else FONT_MED,16),fill=white)
-    x1,y1,x2,y2=(42,488,510,885); rounded(d,(x1,y1,x2,y2),(9,26,49),outline=(47,112,168),radius=24,width=2); d.text((x1+24,y1+20),"PROBABILITÉS MODÈLE",font=font(FONT_BOLD,25),fill=white); h,dr,a=model["final"]; yy=y1+72
+    W,H=1024,1536
+    img=background(W,H); d=ImageDraw.Draw(img); pattern(d,W,H)
+    white=(244,247,255); cyan=(0,218,255); muted=(194,211,232); panel=(7,25,47)
+    match=data.get("match",{})
+    home=match.get("homeTeam",{}).get("name","Domicile")
+    away=match.get("awayTeam",{}).get("name","Extérieur")
+    comp=match.get("competition",{}).get("name","Football")
+    dt=fd_dt(match); status=fd_status(match.get("status"))
+    model=data.get("model") or {"final":(33.3,33.4,33.3),"markets":{"btts":50,"over15":50,"over25":50,"over35":50,"under25":50,"under35":50},"home_xg":1,"away_xg":1,"matrix":poisson_matrix(1,1)}
+    sh=data.get("standings_home") or {}; sa=data.get("standings_away") or {}
+    hf=data.get("home_form") or []; af=data.get("away_form") or []
+    draw_header(d)
+
+    rounded(d,(38,292,986,505),panel,outline=cyan,radius=28,width=3)
+    d.text((66,316),comp.upper()[:34],font=font(FONT_BOLD,25),fill=white)
+    d.text((66,354),f"Journée  •  {dt.strftime('%d/%m/%Y  •  %H:%M') if dt else 'Horaire N/D'}",font=font(FONT_MED,20),fill=muted)
+    d.text((735,318),f"ID {match.get('id','N/D')}",font=font(FONT_BOLD,20),fill=white)
+    rounded(d,(766,355,958,403),(8,55,53),outline=(0,239,151),radius=22,width=2)
+    d.text((791,367),f"{status}",font=font(FONT_BOLD,18),fill=(0,239,151))
+
+    d.ellipse((70,398,146,474),fill=(20,75,116),outline=cyan,width=3)
+    d.text((93,413),home[:1].upper() or "?",font=font(FONT_BOLD,32),fill=white)
+    d.text((164,399),text_fit(d,home,font(FONT_BOLD,25),300),font=font(FONT_BOLD,25),fill=white)
+    d.text((164,436),f"{sh.get('position','N/D')}e  •  {sh.get('points','N/D')} pts  •  {sh.get('gf','N/D')}-{sh.get('ga','N/D')}",font=font(FONT_MED,18),fill=muted)
+    d.text((466,405),"VS",font=font(FONT_BOLD,28),fill=white)
+    d.ellipse((878,398,954,474),fill=(20,75,116),outline=cyan,width=3)
+    d.text((901,413),away[:1].upper() or "?",font=font(FONT_BOLD,32),fill=white)
+    d.text((590,399),text_fit(d,away,font(FONT_BOLD,24),275),font=font(FONT_BOLD,24),fill=white)
+    d.text((590,436),f"{sa.get('position','N/D')}e  •  {sa.get('points','N/D')} pts  •  {sa.get('gf','N/D')}-{sa.get('ga','N/D')}",font=font(FONT_MED,18),fill=muted)
+    d.text((164,470),"Forme : "+("  ".join(x.get("result","?") for x in hf[-5:]) or "N/D"),font=font(FONT_BOLD,18),fill=white)
+    d.text((590,470),"Forme : "+("  ".join(x.get("result","?") for x in af[-5:]) or "N/D"),font=font(FONT_BOLD,18),fill=white)
+
+    tabs=[(38,"Vue d'ensemble"),(278,"Statistiques"),(518,"Face à face"),(758,"Compositions")]
+    for i,(x,lab) in enumerate(tabs):
+        rounded(d,(x,525,x+228,588),(35,69,126) if i==0 else (10,34,60),outline=(70,181,255) if i==0 else (49,86,124),radius=18,width=2)
+        f=font(FONT_BOLD,18 if i==0 else 17)
+        d.text((x+18,546),text_fit(d,lab,f,192),font=f,fill=white)
+
+    # Probabilities
+    x1,y1,x2,y2=(38,610,505,1012)
+    rounded(d,(x1,y1,x2,y2),(8,26,49),outline=(47,130,184),radius=26,width=3)
+    d.text((64,637),"PROBABILITÉS DU MODÈLE",font=font(FONT_BOLD,25),fill=white)
+    h,dr,a=model["final"]; yy=705
     for i,(lab,v) in enumerate([("1",h),("X",dr),("2",a),("1X",h+dr),("X2",dr+a),("12",h+a)]):
-        if i==3: d.line((x1+24,yy-15,x2-24,yy-15),fill=(71,107,139),width=2); yy+=14
-        rounded(d,(x1+24,yy,x1+62,yy+35),(34,105,169),radius=7); d.text((x1+34,yy+3),lab,font=font(FONT_BOLD,21),fill=white); c=(0,218,255) if lab=="12" else bar_color(v); bar(d,x1+82,yy+5,260,26,v,c); d.text((x1+365,yy-1),f"{v:.1f}%",font=font(FONT_BOLD,22),fill=c); yy+=48
-    x1,y1,x2,y2=(532,488,982,885); rounded(d,(x1,y1,x2,y2),(9,26,49),outline=(47,112,168),radius=24,width=2); d.text((x1+24,y1+20),"MARCHÉS DE BUTS",font=font(FONT_BOLD,25),fill=white); m=model["markets"]; yy=y1+72
-    for lab,v in [("BTTS Oui",m["btts"]),("BTTS Non",100-m["btts"]),("Over 1.5",m["over15"]),("Over 2.5",m["over25"]),("Over 3.5",m["over35"]),("Under 2.5",m["under25"]),("Under 3.5",m["under35"])]: c=bar_color(v); d.text((x1+24,yy-2),lab,font=font(FONT_MED,19),fill=white); bar(d,x1+140,yy+1,215,25,v,c); d.text((x1+370,yy-2),f"{v:.1f}%",font=font(FONT_BOLD,20),fill=c); yy+=43
-    d.text((x1+24,y2-49),f"xG estimé : {model['home_xg']:.2f}  •  {model['away_xg']:.2f}",font=font(FONT_BOLD,19),fill=(238,245,255))
-    # scores/status cards
-    rounded(d,(42,902,510,1164),(9,26,49),outline=(47,112,168),radius=24,width=2); d.text((66,922),"SCORES LES PLUS PROBABLES",font=font(FONT_BOLD,22),fill=white); yy=980
-    for h,a,p in likely_scores(model["matrix"],3): d.text((82,yy),f"{h}-{a}",font=font(FONT_BOLD,21),fill=white); bar(d,162,yy+3,190,25,p,(0,193,239)); d.text((370,yy-1),f"{p:.1f}%",font=font(FONT_BOLD,20),fill=white); yy+=57
-    rounded(d,(532,902,982,1164),(9,26,49),outline=(47,112,168),radius=24,width=2); d.text((556,922),"INTELLIGENCE MATCH",font=font(FONT_BOLD,22),fill=white); spread=max(model["final"])-min(model["final"]); conf="Élevée" if max(model["final"])>=60 else "Moyenne" if max(model["final"])>=40 else "Faible"; trend="Équilibré" if spread<20 else "Tendance marquée"; rel="Bonne" if data.get("quality",0)>=.65 else "Moyenne" if data.get("quality",0)>=.4 else "Faible"; yy=980
+        if i==3:
+            d.line((64,yy-16,479,yy-16),fill=(62,102,137),width=2); yy+=12
+        rounded(d,(64,yy,108,yy+40),(34,105,169),radius=8)
+        d.text((76,yy+5),lab,font=font(FONT_BOLD,22),fill=white)
+        c=(0,218,255) if lab=="12" else bar_color(v)
+        bar(d,128,yy+6,270,28,v,c)
+        d.text((410,yy+2),f"{v:.1f}%",font=font(FONT_BOLD,21),fill=c)
+        yy+=54
+
+    # Goal markets
+    x1,y1,x2,y2=(519,610,986,1012)
+    rounded(d,(x1,y1,x2,y2),(8,26,49),outline=(47,130,184),radius=26,width=3)
+    d.text((545,637),"MARCHÉS DE BUTS",font=font(FONT_BOLD,25),fill=white)
+    m=model["markets"]; yy=704
+    for lab,v in [("BTTS Oui",m["btts"]),("BTTS Non",100-m["btts"]),("Over 1.5",m["over15"]),("Over 2.5",m["over25"]),("Over 3.5",m["over35"]),("Under 2.5",m["under25"]),("Under 3.5",m["under35"])]:
+        c=bar_color(v)
+        d.text((545,yy),lab,font=font(FONT_MED,18),fill=white)
+        bar(d,670,yy+2,210,26,v,c)
+        d.text((895,yy),f"{v:.1f}%",font=font(FONT_BOLD,18),fill=c)
+        yy+=39
+    d.text((545,955),f"xG estimé : {model['home_xg']:.2f}  •  {model['away_xg']:.2f}",font=font(FONT_BOLD,19),fill=white)
+
+    # Scores + intelligence
+    rounded(d,(38,1032,505,1254),panel,outline=(47,130,184),radius=25,width=3)
+    d.text((64,1058),"SCORES LES PLUS PROBABLES",font=font(FONT_BOLD,22),fill=white)
+    yy=1108
+    for hh,aa,p in likely_scores(model["matrix"],3):
+        d.text((70,yy),f"{hh}-{aa}",font=font(FONT_BOLD,21),fill=white)
+        bar(d,155,yy+2,220,25,p,(0,193,239))
+        d.text((392,yy),f"{p:.1f}%",font=font(FONT_BOLD,19),fill=white); yy+=47
+
+    rounded(d,(519,1032,986,1254),panel,outline=(47,130,184),radius=25,width=3)
+    d.text((545,1058),"INTELLIGENCE DU MATCH",font=font(FONT_BOLD,22),fill=white)
+    spread=max(model["final"])-min(model["final"])
+    conf="Élevée" if max(model["final"])>=60 else "Moyenne" if max(model["final"])>=40 else "Faible"
+    trend="Équilibré" if spread<20 else "Tendance marquée"
+    rel="Bonne" if data.get("quality",0)>=.65 else "Moyenne" if data.get("quality",0)>=.4 else "Faible"
+    yy=1106
     for lab,val,c in [("Confiance",conf,(255,205,25)),("Tendance",trend,(115,154,210)),("Fiabilité",rel,(28,221,92))]:
-        d.text((556,yy),lab,font=font(FONT_MED,19),fill=white); rounded(d,(805,yy-3,952,yy+32),c,radius=16); vf=font(FONT_BOLD,14); d.text((815,yy+3),text_fit(d,val,vf,128),font=vf,fill=(10,18,30)); yy+=55
-    d.text((556,1140),"Estimations statistiques à partir",font=font(FONT_REG,14),fill=(205,220,239)); d.text((556,1159),"des données disponibles.",font=font(FONT_REG,14),fill=(205,220,239))
-    buttons=[(42,1182,347,1244,"Analyse"),(359,1182,664,1244,"Probabilités"),(677,1182,982,1244,"Buts"),(42,1255,347,1317,"Cotes"),(359,1255,664,1317,"Buteurs"),(677,1255,982,1317,"Simuler"),(42,1330,982,1388,"Menu principal")]
-    for x1,y1,x2,y2,lab in buttons: rounded(d,(x1,y1,x2,y2),(23,66,126),outline=cyan,radius=16,width=2); f=font(FONT_BOLD,18); d.text(((x1+x2-f.getlength(lab))/2,y1+18),lab,font=f,fill=white)
-    d.text((52,1430),"Analyse aujourd'hui, de meilleures décisions demain.",font=font(FONT_ITALIC,14),fill=(181,199,222)); d.text((824,1430),"Sport Analyzer V13.2",font=font(FONT_ITALIC,13),fill=(181,199,222))
+        d.text((545,yy),lab,font=font(FONT_MED,18),fill=white)
+        rounded(d,(758,yy-5,958,yy+34),c,radius=18)
+        f=font(FONT_BOLD,16); d.text((778,yy+5),text_fit(d,val,f,165),font=f,fill=(8,18,30)); yy+=51
+    d.text((545,1218),"Données disponibles • modèle statistique",font=font(FONT_REG,15),fill=muted)
+
+    buttons=[(38,1278,344,1343,"Analyse"),(352,1278,658,1343,"Probabilités"),(666,1278,986,1343,"Buts"),(38,1352,344,1417,"Cotes"),(352,1352,658,1417,"Buteurs"),(666,1352,986,1417,"Simuler"),(38,1427,986,1486,"Menu principal")]
+    for bx1,by1,bx2,by2,lab in buttons:
+        rounded(d,(bx1,by1,bx2,by2),(23,66,126),outline=cyan,radius=17,width=2)
+        f=font(FONT_BOLD,20)
+        tw=d.textlength(lab,font=f)
+        d.text(((bx1+bx2-tw)/2,by1+20),lab,font=f,fill=white)
+    d.text((48,1510),"Analyse aujourd'hui, de meilleures décisions demain.",font=font(FONT_ITALIC,14),fill=muted)
+    d.text((820,1510),"Sport Analyzer V13.3",font=font(FONT_ITALIC,14),fill=muted)
     return img
 
 
-def text_fit(d, text, fnt, max_width):
-    text = str(text)
-    if d.textlength(text, font=fnt) <= max_width:
-        return text
-    while len(text) > 4 and d.textlength(text + "…", font=fnt) > max_width:
-        text = text[:-1]
-    return text + "…"
-
-
-def render_screen(title, subtitle="", sections=None, accent=(0,218,255), footer="Sport Analyzer V13.2"):
-    """Shared renderer used by every graphical bot screen."""
+def render_screen(title, subtitle="", sections=None, accent=(0,218,255), footer="Sport Analyzer V13.3"):
     W,H=1024,1536
-    img=background(W,H); d=ImageDraw.Draw(img)
-    pattern(d,W,H)
+    img=background(W,H); d=ImageDraw.Draw(img); pattern(d,W,H)
     white=(244,247,255); muted=(181,199,222); panel=(7,25,47); cyan=(0,218,255)
-    rounded(d,(42,32,982,132),(5,23,45),outline=(35,190,235),radius=48,width=2)
-    d.ellipse((63,47,123,107),outline=cyan,width=4,fill=(8,40,65))
-    d.text((78,61),"S",font=font(FONT_BOLD,28),fill=white)
-    d.text((142,49),"Sport Analyzer",font=font(FONT_BOLD,27),fill=white)
-    d.text((143,82),"bot",font=font(FONT_REG,18),fill=muted)
-    d.text((690,55),"====",font=font(FONT_BOLD,25),fill=cyan)
-    d.multiline_text((755,53),"Des données\ndes analyses\nd'opportunités",font=font(FONT_REG,14),fill=(218,229,245),spacing=1)
-    rounded(d,(42,153,982,235),panel,outline=cyan,radius=24,width=2)
-    d.text((68,170),text_fit(d,title,font(FONT_BOLD,30),850),font=font(FONT_BOLD,30),fill=white)
-    if subtitle:
-        d.text((68,208),text_fit(d,subtitle,font(FONT_REG,16),850),font=font(FONT_REG,16),fill=muted)
-    y=260
+    draw_header(d); draw_title(d,title,subtitle)
+    y=300
     sections=sections or []
     for sec in sections:
         kind=sec.get("kind","card")
-        if kind=="card":
-            height=int(sec.get("height",150));
-            rounded(d,(42,y,982,y+height),panel,outline=(47,112,168),radius=24,width=2)
-            heading=sec.get("heading","")
-            if heading:
-                d.text((68,y+22),heading,font=font(FONT_BOLD,22),fill=white)
-            yy=y+62
-            for row in sec.get("rows",[]):
-                label=str(row[0]); value=str(row[1]) if len(row)>1 else ""
-                color=row[2] if len(row)>2 else white
-                d.text((68,yy),text_fit(d,label,font(FONT_MED,18),470),font=font(FONT_MED,18),fill=white)
-                if len(row)>3 and isinstance(row[3],(int,float)):
-                    val=float(row[3]); bar(d,520,yy+1,290,24,val,color); d.text((835,yy-2),f"{val:.1f}%",font=font(FONT_BOLD,18),fill=color)
-                else:
-                    d.text((520,yy),text_fit(d,value,font(FONT_BOLD,18),380),font=font(FONT_BOLD,18),fill=color)
-                yy+=43
-        elif kind=="bars":
-            height=int(sec.get("height",260)); rounded(d,(42,y,982,y+height),panel,outline=(47,112,168),radius=24,width=2)
-            d.text((68,y+22),sec.get("heading",""),font=font(FONT_BOLD,22),fill=white)
-            yy=y+70
+        height=int(sec.get("height",180))
+        if y+height>1420: height=max(100,1420-y)
+        rounded(d,(38,y,986,y+height),panel,outline=(47,130,184),radius=26,width=3)
+        heading=sec.get("heading","")
+        if heading:
+            d.text((66,y+24),heading,font=font(FONT_BOLD,26),fill=white)
+        yy=y+78
+        if kind=="bars":
             for label,val in sec.get("rows",[]):
                 c=bar_color(val)
-                d.text((68,yy),label,font=font(FONT_MED,18),fill=white)
-                bar(d,300,yy+1,430,24,val,c)
-                d.text((755,yy-2),f"{val:.1f}%",font=font(FONT_BOLD,18),fill=c)
-                yy+=43
-        y += int(sec.get("height",150)) + 20
-        if y>1370: break
-    d.text((52,1450),"Analyse aujourd'hui, de meilleures décisions demain.",font=font(FONT_ITALIC,14),fill=muted)
-    d.text((820,1450),footer,font=font(FONT_ITALIC,13),fill=muted)
+                d.text((66,yy),text_fit(d,label,font(FONT_MED,20),250),font=font(FONT_MED,20),fill=white)
+                bar(d,320,yy+2,455,28,val,c)
+                d.text((798,yy),f"{float(val):.1f}%",font=font(FONT_BOLD,20),fill=c)
+                yy+=48
+        else:
+            rows=sec.get("rows",[])
+            for row in rows:
+                label=str(row[0]); value=str(row[1]) if len(row)>1 else ""; color=row[2] if len(row)>2 else white
+                d.text((66,yy),text_fit(d,label,font(FONT_MED,20),430),font=font(FONT_MED,20),fill=white)
+                if len(row)>3 and isinstance(row[3],(int,float)):
+                    val=float(row[3]); c=color if isinstance(color,tuple) else bar_color(val)
+                    bar(d,520,yy+2,280,28,val,c); d.text((820,yy),f"{val:.1f}%",font=font(FONT_BOLD,20),fill=c)
+                else:
+                    d.text((520,yy),text_fit(d,value,font(FONT_BOLD,20),390),font=font(FONT_BOLD,20),fill=color)
+                yy+=48
+        y+=int(sec.get("height",180))+22
+        if y>=1410: break
+    d.text((48,1490),"Analyse aujourd'hui, de meilleures décisions demain.",font=font(FONT_ITALIC,14),fill=muted)
+    d.text((815,1490),footer,font=font(FONT_ITALIC,14),fill=muted)
     return img
 
 
@@ -696,9 +783,9 @@ def render_match_list(matches, source):
     rows=[]
     for item in matches[:8]:
         home,away=match_names(item); dt=fd_dt(item)
-        rows.append((f"{dt.strftime('%H:%M') if dt else '--:--'}  {home}",f"{away}"))
+        rows.append((f"{dt.strftime('%H:%M') if dt else '--:--'}  {home}",away))
     return render_screen("MATCHS DU JOUR",f"{today_paris()}  •  {source}  •  {len(matches)} affiché(s)",[
-        {"kind":"card","heading":"RENCONTRES DISPONIBLES","height":470,"rows":rows or [("Aucun match","-")]}
+        {"kind":"card","heading":"RENCONTRES DISPONIBLES","height":620,"rows":rows or [("Aucun match","Aucune rencontre disponible")]}
     ])
 
 
@@ -706,13 +793,12 @@ def render_match_selected(item, fid):
     home,away=match_names(item); comp=item.get("competition",{}).get("name","Football"); dt=fd_dt(item)
     rows=[("Compétition",comp),("Date",dt.strftime('%d/%m/%Y %H:%M') if dt else "N/D"),("Identifiant",fid),("Domicile",home),("Extérieur",away)]
     return render_screen("MATCH SÉLECTIONNÉ","Détail du match et modules disponibles",[
-        {"kind":"card","heading":"FICHE MATCH","height":300,"rows":rows},
-        {"kind":"card","heading":"MODULES","height":190,"rows":[("Analyse","Dashboard complet"),("Probabilités","1X2 et double chance"),("Buts","BTTS et Over/Under"),("Cotes / Buteurs / Simuler","Modules complémentaires")]}
+        {"kind":"card","heading":"FICHE MATCH","height":340,"rows":rows},
+        {"kind":"card","heading":"MODULES DISPONIBLES","height":270,"rows":[("Analyse","Dashboard complet"),("Probabilités","1X2 et double chance"),("Buts","BTTS et Over / Under"),("Cotes","Données disponibles selon la source"),("Buteurs","Informations disponibles selon la source")]}
     ])
 
 
 def render_dashboard_alt(data, active="Analyse"):
-    """Single dashboard renderer. Kept separate so the main reference layout stays stable."""
     return render_dashboard(data)
 
 
@@ -723,7 +809,7 @@ async def run_analysis_dashboard_for_message(message, fid, user_id):
     match=data.get("match",{}); img=render_dashboard(data)
     # Logo download is optional and intentionally omitted from the critical path for speed.
     output=io.BytesIO(); img.save(output,format="PNG",optimize=True); output.seek(0)
-    await message.reply_photo(photo=output.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nDashboard mobile • données dynamiques",parse_mode="HTML",reply_markup=match_keyboard(fid))
+    await message.reply_photo(photo=output.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nDashboard mobile • données dynamiques",parse_mode="HTML",reply_markup=match_keyboard(fid))
 
 
 async def send_simulator_menu(message,fid):
@@ -731,7 +817,7 @@ async def send_simulator_menu(message,fid):
         {"kind":"card","heading":"MARCHÉS","height":250,"rows":[("1X2","Victoire domicile / nul / extérieur"),("Double chance","1X • X2 • 12"),("BTTS","Oui / Non"),("Over / Under","1.5 • 2.5 • 3.5")]}
     ])
     out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nSimulateur",parse_mode="HTML",reply_markup=simulator_keyboard(fid))
+    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nSimulateur",parse_mode="HTML",reply_markup=simulator_keyboard(fid))
 
 
 async def send_market_menu(message,fid,market):
@@ -744,7 +830,7 @@ async def send_market_menu(message,fid,market):
     title={"1X2":"1X2","DC":"DOUBLE CHANCE","BTTS":"BTTS","OU":"OVER / UNDER"}[market]
     img=render_screen(title,"Choisis une sélection à simuler",[{"kind":"bars","heading":"PROBABILITÉS","height":300,"rows":datasets[market]}])
     out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nChoix du marché",parse_mode="HTML",reply_markup=market_keyboard(fid,market))
+    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nChoix du marché",parse_mode="HTML",reply_markup=market_keyboard(fid,market))
 
 
 async def send_pick_stake_menu(message,fid,market,selection):
@@ -762,7 +848,7 @@ async def send_pick_stake_menu(message,fid,market,selection):
         {"kind":"card","heading":"MISE THÉORIQUE","height":160,"rows":[("5 €","simulation"),("10 €","simulation"),("20 €","simulation"),("50 €","simulation")]}
     ])
     out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nSimulation",parse_mode="HTML",reply_markup=stake_keyboard(fid,market,selection))
+    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nSimulation",parse_mode="HTML",reply_markup=stake_keyboard(fid,market,selection))
 
 
 async def send_stake_result(message,fid,market,selection,stake):
@@ -778,7 +864,7 @@ async def send_stake_result(message,fid,market,selection,stake):
         {"kind":"card","heading":"RÉSULTAT","height":320,"rows":[("Sélection",selection),("Probabilité",f"{p:.1f}%"),("Mise",f"{float(stake):.2f} €"),("Cote juste",f"{fair:.2f}"),("Retour théorique",f"{ret:.2f} €"),("Profit théorique",f"{profit:+.2f} €")]}
     ])
     out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nSimulation terminée",parse_mode="HTML",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔬 Autre marché",callback_data=f"sim:{fid}"),InlineKeyboardButton("🔎 Analyse",callback_data=f"analyse:{fid}")],[InlineKeyboardButton("🏠 Menu principal",callback_data="menu:home")]]))
+    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nSimulation terminée",parse_mode="HTML",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔬 Autre marché",callback_data=f"sim:{fid}"),InlineKeyboardButton("🔎 Analyse",callback_data=f"analyse:{fid}")],[InlineKeyboardButton("🏠 Menu principal",callback_data="menu:home")]]))
 
 
 async def send_performance_result(message,user_id):
@@ -787,7 +873,7 @@ async def send_performance_result(message,user_id):
     for k,v in sorted(perf["markets"].items()): rows.append((k,f"{v['wins']}/{v['total']}  •  {v['wins']/v['total']*100:.1f}%"))
     img=render_screen("PERFORMANCE","Résultats calculés sur les prédictions validées",[{"kind":"card","heading":"TABLEAU DE BORD","height":560,"rows":rows}])
     out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nPerformance",parse_mode="HTML",reply_markup=main_menu())
+    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nPerformance",parse_mode="HTML",reply_markup=main_menu())
 
 
 async def send_validation_result(message,user_id):
@@ -802,7 +888,7 @@ async def send_bankroll_result(message,user_id):
         {"kind":"card","heading":"SUIVI FINANCIER","height":300,"rows":[("Mises enregistrées",f"{total:.2f} €"),("Profit / perte",f"{profit:+.2f} €"),("Paris",count),("Paris gagnants",wins),("ROI",f"{roi:+.2f}%")]},
         {"kind":"card","heading":"NOTE","height":130,"rows":[("Comptabilité","Les mises doivent être saisies par l'utilisateur")]}])
     out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nBankroll",parse_mode="HTML",reply_markup=main_menu())
+    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nBankroll",parse_mode="HTML",reply_markup=main_menu())
 
 
 async def send_status_result(message):
@@ -812,10 +898,10 @@ async def send_status_result(message):
             data,error=await fd_get(client,"/matches",{"date":today_paris()},"fd:status",30); fd_ok=data is not None and error is None; detail="OK" if fd_ok else str(error)
         ts_data,ts_error=await tsdb_get(client,"eventsday.php",{"d":today_paris(),"s":"Soccer"},"tsdb:status",30); ts_ok=ts_data is not None and ts_error is None
     img=render_screen("ÉTAT DES SOURCES","Contrôle rapide des fournisseurs de données",[
-        {"kind":"card","heading":"SOURCES","height":230,"rows":[("Football-Data.org","OK" if fd_ok else "Indisponible",(28,221,92) if fd_ok else (255,67,67)),("TheSportsDB","OK" if ts_ok else "Indisponible",(28,221,92) if ts_ok else (255,67,67)),("API-Football","désactivée dans V13.2",(181,199,222))]},
+        {"kind":"card","heading":"SOURCES","height":230,"rows":[("Football-Data.org","OK" if fd_ok else "Indisponible",(28,221,92) if fd_ok else (255,67,67)),("TheSportsDB","OK" if ts_ok else "Indisponible",(28,221,92) if ts_ok else (255,67,67)),("API-Football","désactivée dans V13.3",(181,199,222))]},
         {"kind":"card","heading":"DÉTAIL","height":170,"rows":[("Football-Data.org",detail[:90])]}])
     out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nÉtat des sources",parse_mode="HTML",reply_markup=main_menu())
+    await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nÉtat des sources",parse_mode="HTML",reply_markup=main_menu())
 
 
 # -------------------------
@@ -837,7 +923,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"kind":"card","heading":"MODULES","height":380,"rows":[("Matchs du jour","Rencontres disponibles"),("Analyse","Dashboard complet"),("Probabilités","1X2 • double chance"),("Buts","BTTS • Over/Under"),("Cotes","Sources et saisie manuelle"),("Buteurs","Événements disponibles"),("Simulateur","Mises théoriques")]},
                 {"kind":"card","heading":"SUIVI","height":150,"rows":[("Performance","Validation des prédictions"),("Bankroll","Mises et ROI")]}])
             out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-            await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nMenu principal",parse_mode="HTML",reply_markup=main_menu()); return
+            await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nMenu principal",parse_mode="HTML",reply_markup=main_menu()); return
         if data=="menu:match": await send_match_results(message); return
         if data=="menu:status": await send_status_result(message); return
         if data=="menu:performance": await send_performance_result(message,uid); return
@@ -846,15 +932,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data=="menu:sim":
             img=render_screen("SIMULATEUR","Les rendements affichés sont théoriques",[{"kind":"card","heading":"UTILISATION","height":220,"rows":[("1","Ouvre un match"),("2","Choisis un marché"),("3","Choisis une mise théorique")]}])
             out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-            await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nSimulateur",parse_mode="HTML",reply_markup=main_menu()); return
+            await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nSimulateur",parse_mode="HTML",reply_markup=main_menu()); return
         if data=="menu:tools":
             img=render_screen("OUTILS","Suivi, validation et sources",[{"kind":"card","heading":"OUTILS","height":260,"rows":[("Performance","Taux de réussite"),("Validation","Résultats terminés"),("Bankroll","Mises et ROI"),("Sources","État des APIs")]}])
             out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-            await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nOutils",parse_mode="HTML",reply_markup=tools_keyboard()); return
+            await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nOutils",parse_mode="HTML",reply_markup=tools_keyboard()); return
         if data=="menu:help":
             img=render_screen("AIDE RAPIDE","Commandes et fonctionnement",[{"kind":"card","heading":"COMMANDES","height":430,"rows":[("/match","Matchs du jour"),("/analyse ID","Dashboard"),("/probabilite ID","Probabilités"),("/buts ID","Marchés de buts"),("/buteur ID","Buteurs / événements"),("/mise ...","Enregistrer une mise"),("/performance","Performance"),("/validation","Validation")]}])
             out=io.BytesIO(); img.save(out,format="PNG",optimize=True); out.seek(0)
-            await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.2</b>\nAide",parse_mode="HTML",reply_markup=main_menu()); return
+            await message.reply_photo(photo=out.getvalue(),caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nAide",parse_mode="HTML",reply_markup=main_menu()); return
         if ":" not in data: return
         action,value=data.split(":",1)
         if action=="match": await send_match_actions(message,value); return
@@ -880,8 +966,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Commands
 # -------------------------
 
-async def start(update,context): await update.message.reply_text("⚡ <b>SPORT ANALYZER • V13.2</b>\n╭────────────────────────╮\n│ ⚽ <b>FOOTBALL INTELLIGENCE</b>\n│ 🎯 Probabilités  •  ⚽ Buts\n│ 💰 Cotes  •  🔬 Simulation\n╰────────────────────────╯\n\n👇 <b>CHOISIS TON MODULE</b>",parse_mode="HTML",reply_markup=main_menu())
-async def help_command(update,context): await update.message.reply_text("📊 <b>SPORT ANALYZER V13.2</b>\n\n/match\n/analyse ID\n/buts ID\n/probabilite ID\n/buteur ID\n/cotes ID\n/mise ID marché sélection montant [cote]\n/resultat ID_BET win|loss|void\n/bankroll\n/statusapi\n/performance\n/validation",parse_mode="HTML")
+async def start(update,context): await update.message.reply_text("⚡ <b>SPORT ANALYZER • V13.3</b>\n╭────────────────────────╮\n│ ⚽ <b>FOOTBALL INTELLIGENCE</b>\n│ 🎯 Probabilités  •  ⚽ Buts\n│ 💰 Cotes  •  🔬 Simulation\n╰────────────────────────╯\n\n👇 <b>CHOISIS TON MODULE</b>",parse_mode="HTML",reply_markup=main_menu())
+async def help_command(update,context): await update.message.reply_text("📊 <b>SPORT ANALYZER V13.3</b>\n\n/match\n/analyse ID\n/buts ID\n/probabilite ID\n/buteur ID\n/cotes ID\n/mise ID marché sélection montant [cote]\n/resultat ID_BET win|loss|void\n/bankroll\n/statusapi\n/performance\n/validation",parse_mode="HTML")
 async def match_command(update,context): await send_match_results(update.message)
 async def analyse_command(update,context):
     if not context.args: await update.message.reply_text("Utilisation : /analyse ID"); return
@@ -929,7 +1015,7 @@ async def webhook(request: Request):
     except Exception as exc:
         print(f"❌ Webhook error: {exc}",flush=True); return JSONResponse({"ok":False},status_code=500)
 
-async def health(request: Request): return JSONResponse({"status":"ok","bot":"sport-analyzer-bot-v13.1"})
+async def health(request: Request): return JSONResponse({"status":"ok","bot":"sport-analyzer-bot-v13.3"})
 
 @asynccontextmanager
 async def lifespan(app):
@@ -940,7 +1026,7 @@ async def lifespan(app):
     telegram_app=Application.builder().token(TOKEN).concurrent_updates(True).build()
     for command,func in [("start",start),("help",help_command),("match",match_command),("analyse",analyse_command),("cotes",cotes_command),("buteur",buteur_command),("buts",buts_command),("probabilite",probabilite_command),("mise",mise_command),("resultat",resultat_command),("bankroll",bankroll_command),("statusapi",statusapi_command),("performance",performance_command),("validation",validation_command)]: telegram_app.add_handler(CommandHandler(command,func))
     telegram_app.add_handler(CallbackQueryHandler(callback_handler))
-    await telegram_app.initialize(); await telegram_app.start(); await telegram_app.bot.set_webhook(f"{RENDER_URL}/telegram"); print("✅ SPORT ANALYZER V13.2 démarré",flush=True)
+    await telegram_app.initialize(); await telegram_app.start(); await telegram_app.bot.set_webhook(f"{RENDER_URL}/telegram"); print("✅ SPORT ANALYZER V13.3 démarré",flush=True)
     try: yield
     finally: await telegram_app.stop(); await telegram_app.shutdown()
 
