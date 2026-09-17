@@ -18,7 +18,7 @@ from starlette.routing import Route
 import uvicorn
 
 # ============================================================
-# SPORT ANALYZER V10
+# SPORT ANALYZER V11
 # Primary source: Football-Data.org
 # Fallback source: TheSportsDB
 # API-Football is intentionally not used by this version.
@@ -798,52 +798,55 @@ async def full_analysis(fixture_id):
     }, None
 
 
-def build_analysis_message(data):
+def build_analysis_cards(data):
+    """Construit une analyse en cartes Telegram courtes et lisibles."""
     match = data["match"]
     home = match["homeTeam"]["name"]
     away = match["awayTeam"]["name"]
     comp = match.get("competition", {}).get("name", "Compétition")
     dt = fd_dt(match)
-    date_text = dt.strftime("%d/%m/%Y %H:%M") if dt else "Horaire N/D"
-    model = data["model"]
-    sh = data["standings_home"]
-    sa = data["standings_away"]
+    date_text = dt.strftime("%d/%m/%Y • %H:%M") if dt else "Horaire N/D"
+    status = fd_status(match.get("status"))
+    model = data.get("model")
+    sh = data.get("standings_home") or {}
+    sa = data.get("standings_away") or {}
+    hf = data.get("home_form") or []
+    af = data.get("away_form") or []
 
-    msg = (
-        "🔎 <b>SPORT ANALYZER V10</b>\n"
+    # Carte 1: identité du match
+    card1 = (
+        "🔎 <b>SPORT ANALYZER V11</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚽ <b>{home}</b>  vs  <b>{away}</b>\n"
+        f"⚽ <b>{home}</b>\n"
+        f"   <i>vs</i> <b>{away}</b>\n\n"
         f"🏆 {comp}\n"
         f"📅 {date_text}\n"
-        f"📊 Statut : <b>{fd_status(match.get('status'))}</b>\n"
-        f"🆔 ID : <code>{match.get('id')}</code>\n\n"
+        f"🟢 <b>{status}</b>\n"
+        f"🆔 <code>{match.get('id')}</code>\n\n"
         "📋 <b>CLASSEMENT</b>\n"
+        f"🏠 {sh.get('position', 'N/D')}e  •  {sh.get('points', 'N/D')} pts  •  {sh.get('gf', 'N/D')}-{sh.get('ga', 'N/D')}\n"
+        f"✈️ {sa.get('position', 'N/D')}e  •  {sa.get('points', 'N/D')} pts  •  {sa.get('gf', 'N/D')}-{sa.get('ga', 'N/D')}\n\n"
+        "📈 <b>FORME</b>\n"
+        f"🏠 {home}  :  " + (" ".join(x["result"] for x in hf) if hf else "N/D") + "\n"
+        f"✈️ {away}  :  " + (" ".join(x["result"] for x in af) if af else "N/D")
     )
-    if sh:
-        msg += f"• {home} : {sh.get('position', 'N/D')}e | {sh.get('points', 'N/D')} pts | {sh.get('gf', 'N/D')}-{sh.get('ga', 'N/D')}\n"
-    else:
-        msg += f"• {home} : N/D\n"
-    if sa:
-        msg += f"• {away} : {sa.get('position', 'N/D')}e | {sa.get('points', 'N/D')} pts | {sa.get('gf', 'N/D')}-{sa.get('ga', 'N/D')}\n"
-    else:
-        msg += f"• {away} : N/D\n"
 
-    hf = data["home_form"]
-    af = data["away_form"]
-    msg += "\n📈 <b>FORME 5 DERNIERS</b>\n"
-    msg += f"• {home} : " + (" ".join(x["result"] for x in hf) if hf else "N/D") + "\n"
-    msg += f"• {away} : " + (" ".join(x["result"] for x in af) if af else "N/D") + "\n"
+    cards = [card1]
 
     if model:
         ph, pd, pa = model["final"]
         m = model["markets"]
-        msg += (
-            "\n🎯 <b>PROBABILITÉS MODÈLE</b>\n"
+        scores = likely_scores(model["matrix"], 3)
+
+        card2 = (
+            "🎯 <b>TABLEAU DES PROBABILITÉS</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
             + probability_block([
                 ("1", ph), ("X", pd), ("2", pa),
                 ("1X", ph + pd), ("X2", pd + pa), ("12", ph + pa)
-            ])
-            + "\n\n⚽ <b>MARCHÉS DE BUTS</b>\n"
+            ], width=10)
+            + "\n\n"
+            "⚽ <b>MARCHÉS DE BUTS</b>\n"
             + probability_block([
                 ("BTTS Oui", m["btts"]),
                 ("BTTS Non", 100 - m["btts"]),
@@ -852,49 +855,63 @@ def build_analysis_message(data):
                 ("Over 3.5", m["over35"]),
                 ("Under 2.5", m["under25"]),
                 ("Under 3.5", m["under35"])
-            ])
-            + f"\nxG modèle : {model['home_xg']:.2f} - {model['away_xg']:.2f}\n"
+            ], width=10)
+            + f"\n\n📐 xG  <b>{model['home_xg']:.2f}</b>  —  <b>{model['away_xg']:.2f}</b>"
         )
-        scores = likely_scores(model["matrix"], 3)
-        if scores:
-            msg += "\n🔢 <b>SCORES LES PLUS PROBABLES</b>\n"
-            for h, a, p in scores:
-                msg += f"• {h}-{a} : {prob_bar(p)} {p:.1f}%\n"
-        msg += f"\n🧠 <b>CONFIANCE</b> : {confidence_label(model['final'], data['quality'])}\n"
-    else:
-        msg += "\n⚠️ Données insuffisantes pour calculer le modèle de buts.\n"
+        cards.append(card2)
 
-    h2h = data["h2h"]
-    if h2h:
-        wins_h = wins_a = draws = 0
-        for item in h2h:
-            hg, ag = score_pair(item)
-            if hg is None or ag is None:
-                continue
-            hn = item.get("homeTeam", {}).get("name", "")
-            an = item.get("awayTeam", {}).get("name", "")
-            if hg == ag:
-                draws += 1
-            elif (hn == home and hg > ag) or (an == home and ag > hg):
-                wins_h += 1
-            else:
-                wins_a += 1
-        msg += (
-            "\n🤝 <b>FACE À FACE</b>\n"
-            f"• Matchs disponibles : {len(h2h)}\n"
-            f"• {home} : {wins_h}\n"
-            f"• Nuls : {draws}\n"
-            f"• {away} : {wins_a}\n"
+        score_lines = []
+        for h, a, p in scores:
+            score_lines.append(f"⚽ <b>{h}-{a}</b>   {prob_bar(p)}   <b>{p:.1f}%</b>")
+        score_text = "\n".join(score_lines) if score_lines else "N/D"
+
+        h2h = data.get("h2h") or []
+        if h2h:
+            wins_h = wins_a = draws = 0
+            for item in h2h:
+                hg, ag = score_pair(item)
+                if hg is None or ag is None:
+                    continue
+                hn = item.get("homeTeam", {}).get("name", "")
+                an = item.get("awayTeam", {}).get("name", "")
+                if hg == ag:
+                    draws += 1
+                elif (hn == home and hg > ag) or (an == home and ag > hg):
+                    wins_h += 1
+                else:
+                    wins_a += 1
+            h2h_text = (
+                f"🤝 <b>FACE À FACE</b>\n"
+                f"🏠 {home}  {wins_h}   •   Nuls {draws}   •   {wins_a}  {away}\n"
+                f"📊 {len(h2h)} match(s) disponible(s)"
+            )
+        else:
+            h2h_text = "🤝 <b>FACE À FACE</b>\nDonnées non disponibles."
+
+        card3 = (
+            "🔢 <b>SCORES LES PLUS PROBABLES</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"{score_text}\n\n"
+            f"🧠 <b>CONFIANCE</b>  {confidence_label(model['final'], data['quality'])}\n\n"
+            + h2h_text
+            + "\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "ℹ️ <i>Estimations statistiques, sans garantie de résultat.</i>"
         )
+        cards.append(card3)
     else:
-        msg += "\n🤝 H2H : N/D\n"
+        cards.append(
+            "⚠️ <b>MODÈLE</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Données insuffisantes pour calculer les probabilités."
+        )
 
-    msg += (
-        "\n━━━━━━━━━━━━━━━━━━\n"
-        "ℹ️ <i>Probabilités estimatives calculées à partir des données disponibles.</i>"
-    )
-    return msg
+    return cards
 
+
+def build_analysis_message(data):
+    """Compatibilité avec les anciennes parties du bot."""
+    return "\n\n".join(build_analysis_cards(data))
 
 def main_menu():
     return InlineKeyboardMarkup([
@@ -1214,7 +1231,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu:home":
         await query.message.reply_text(
-            "🤖 SPORT ANALYZER V10\n\nChoisis une fonction :",
+            "🤖 SPORT ANALYZER V11\n\nChoisis une fonction :",
             reply_markup=main_menu(),
         )
         return
@@ -1365,9 +1382,16 @@ async def send_match_actions(message, fixture_id):
     date_text = dt.strftime("%d/%m/%Y %H:%M") if dt else "N/D"
 
     await message.reply_text(
-        f"⚽ {home} - {away}\n"
-        f"🏆 {comp}\n📅 {date_text}\n🆔 {fixture_id}\n\n"
-        "Choisis une option :",
+        "⚽ <b>MATCH SÉLECTIONNÉ</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>{home}</b>\n"
+        f"<i>vs</i>\n"
+        f"<b>{away}</b>\n\n"
+        f"🏆 {comp}\n"
+        f"📅 {date_text}\n"
+        f"🆔 <code>{fixture_id}</code>\n\n"
+        "👇 <b>CHOISIS TON MODULE</b>",
+        parse_mode="HTML",
         reply_markup=match_keyboard(fixture_id),
     )
 
@@ -1380,12 +1404,13 @@ async def run_analysis_for_message(message, fixture_id, user_id):
         return
     record_model_predictions(user_id, data)
     await validate_predictions()
-    msg = build_analysis_message(data)
-    if len(msg) <= 3900:
-        await message.reply_text(msg, parse_mode="HTML", reply_markup=match_keyboard(fixture_id))
-    else:
-        for i in range(0, len(msg), 3800):
-            await message.reply_text(msg[i:i + 3800])
+    cards = build_analysis_cards(data)
+    for i, card in enumerate(cards):
+        await message.reply_text(
+            card,
+            parse_mode="HTML",
+            reply_markup=match_keyboard(fixture_id) if i == len(cards) - 1 else None,
+        )
 
 
 async def run_buts_for_message(message, fixture_id):
@@ -1578,15 +1603,18 @@ async def send_status_result(message):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 SPORT ANALYZER V10\n\n"
-        "Analyse football, probabilités, buts, cotes et suivi.\n\n"
-        "Utilise les boutons ci-dessous pour naviguer.",
+        "🤖 <b>SPORT ANALYZER V11</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "⚽ <b>FOOTBALL INTELLIGENCE</b>\n\n"
+        "📊 Analyse  •  🎯 Probabilités  •  ⚽ Buts\n"
+        "💰 Cotes  •  🔬 Simulation  •  📈 Suivi\n\n"
+        "👇 <b>CHOISIS UNE FONCTION</b>",
         reply_markup=main_menu(),
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📊 SPORT ANALYZER V10\n\n"
+        "📊 SPORT ANALYZER V11\n\n"
         "/match = matchs du jour\n"
         "/analyse ID = analyse statistique\n"
         "/buts ID = BTTS, Over/Under et xG modèle\n"
@@ -1655,12 +1683,13 @@ async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     record_model_predictions(update.effective_user.id, data)
     await validate_predictions()
-    msg = build_analysis_message(data)
-    if len(msg) <= 3900:
-        await update.message.reply_text(msg)
-    else:
-        for i in range(0, len(msg), 3800):
-            await update.message.reply_text(msg[i:i + 3800])
+    cards = build_analysis_cards(data)
+    for i, card in enumerate(cards):
+        await update.message.reply_text(
+            card,
+            parse_mode="HTML",
+            reply_markup=match_keyboard(fixture_id) if i == len(cards) - 1 else None,
+        )
 
 
 async def buts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
