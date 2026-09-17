@@ -18,7 +18,7 @@ from starlette.routing import Route
 import uvicorn
 
 # ============================================================
-# SPORT ANALYZER V9
+# SPORT ANALYZER V10
 # Primary source: Football-Data.org
 # Fallback source: TheSportsDB
 # API-Football is intentionally not used by this version.
@@ -481,7 +481,7 @@ async def performance_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         if avg_prob is not None:
             msg += f" | prob. moy. {avg_prob:.1f}%"
         msg += "\n"
-    await update.message.reply_text(msg)
+    await update.message.reply_text(msg, parse_mode="HTML", reply_markup=match_keyboard(fixture_id))
 
 
 async def validate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -810,13 +810,14 @@ def build_analysis_message(data):
     sa = data["standings_away"]
 
     msg = (
-        "🔎 ANALYSE SPORT ANALYZER V9\n\n"
-        f"⚽ {home} - {away}\n"
+        "🔎 <b>SPORT ANALYZER V10</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚽ <b>{home}</b>  vs  <b>{away}</b>\n"
         f"🏆 {comp}\n"
         f"📅 {date_text}\n"
-        f"📊 Statut : {fd_status(match.get('status'))}\n"
-        f"🆔 ID : {match.get('id')}\n\n"
-        "📋 CLASSEMENT\n"
+        f"📊 Statut : <b>{fd_status(match.get('status'))}</b>\n"
+        f"🆔 ID : <code>{match.get('id')}</code>\n\n"
+        "📋 <b>CLASSEMENT</b>\n"
     )
     if sh:
         msg += f"• {home} : {sh.get('position', 'N/D')}e | {sh.get('points', 'N/D')} pts | {sh.get('gf', 'N/D')}-{sh.get('ga', 'N/D')}\n"
@@ -829,7 +830,7 @@ def build_analysis_message(data):
 
     hf = data["home_form"]
     af = data["away_form"]
-    msg += "\n📈 FORME 5 DERNIERS\n"
+    msg += "\n📈 <b>FORME 5 DERNIERS</b>\n"
     msg += f"• {home} : " + (" ".join(x["result"] for x in hf) if hf else "N/D") + "\n"
     msg += f"• {away} : " + (" ".join(x["result"] for x in af) if af else "N/D") + "\n"
 
@@ -837,12 +838,12 @@ def build_analysis_message(data):
         ph, pd, pa = model["final"]
         m = model["markets"]
         msg += (
-            "\n🎯 PROBABILITÉS MODÈLE\n"
+            "\n🎯 <b>PROBABILITÉS MODÈLE</b>\n"
             + probability_block([
                 ("1", ph), ("X", pd), ("2", pa),
                 ("1X", ph + pd), ("X2", pd + pa), ("12", ph + pa)
             ])
-            + "\n\n⚽ MARCHÉS DE BUTS\n"
+            + "\n\n⚽ <b>MARCHÉS DE BUTS</b>\n"
             + probability_block([
                 ("BTTS Oui", m["btts"]),
                 ("BTTS Non", 100 - m["btts"]),
@@ -856,10 +857,10 @@ def build_analysis_message(data):
         )
         scores = likely_scores(model["matrix"], 3)
         if scores:
-            msg += "\n🔢 SCORES LES PLUS PROBABLES\n"
+            msg += "\n🔢 <b>SCORES LES PLUS PROBABLES</b>\n"
             for h, a, p in scores:
                 msg += f"• {h}-{a} : {prob_bar(p)} {p:.1f}%\n"
-        msg += f"\n🧠 Confiance : {confidence_label(model['final'], data['quality'])}\n"
+        msg += f"\n🧠 <b>CONFIANCE</b> : {confidence_label(model['final'], data['quality'])}\n"
     else:
         msg += "\n⚠️ Données insuffisantes pour calculer le modèle de buts.\n"
 
@@ -879,7 +880,7 @@ def build_analysis_message(data):
             else:
                 wins_a += 1
         msg += (
-            "\n🤝 H2H\n"
+            "\n🤝 <b>FACE À FACE</b>\n"
             f"• Matchs disponibles : {len(h2h)}\n"
             f"• {home} : {wins_h}\n"
             f"• Nuls : {draws}\n"
@@ -890,7 +891,7 @@ def build_analysis_message(data):
 
     msg += (
         "\n━━━━━━━━━━━━━━━━━━\n"
-        "ℹ️ Les probabilités sont des estimations statistiques calculées à partir des données disponibles."
+        "ℹ️ <i>Probabilités estimatives calculées à partir des données disponibles.</i>"
     )
     return msg
 
@@ -898,20 +899,20 @@ def build_analysis_message(data):
 def main_menu():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("⚽ Matchs du jour", callback_data="menu:match"),
-            InlineKeyboardButton("📊 Performance", callback_data="menu:performance"),
+            InlineKeyboardButton("⚽ MATCHS DU JOUR", callback_data="menu:match"),
+            InlineKeyboardButton("📊 PERFORMANCE", callback_data="menu:performance"),
         ],
         [
-            InlineKeyboardButton("💰 Bankroll", callback_data="menu:bankroll"),
-            InlineKeyboardButton("🔬 Simulateur", callback_data="menu:sim"),
+            InlineKeyboardButton("💰 BANKROLL", callback_data="menu:bankroll"),
+            InlineKeyboardButton("🔬 SIMULATEUR", callback_data="menu:sim"),
         ],
         [
-            InlineKeyboardButton("🔌 Sources", callback_data="menu:status"),
-            InlineKeyboardButton("🔄 Validation", callback_data="menu:validation"),
+            InlineKeyboardButton("🔌 SOURCES", callback_data="menu:status"),
+            InlineKeyboardButton("🔄 VALIDATION", callback_data="menu:validation"),
         ],
         [
-            InlineKeyboardButton("⚙️ Outils", callback_data="menu:tools"),
-            InlineKeyboardButton("❓ Aide", callback_data="menu:help"),
+            InlineKeyboardButton("⚙️ OUTILS", callback_data="menu:tools"),
+            InlineKeyboardButton("❓ AIDE", callback_data="menu:help"),
         ],
     ])
 
@@ -920,18 +921,21 @@ def match_keyboard(fixture_id):
     fid = str(fixture_id)
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔎 Analyse", callback_data=f"analyse:{fid}"),
-            InlineKeyboardButton("🎯 Probabilités", callback_data=f"prob:{fid}"),
+            InlineKeyboardButton("🔎 ANALYSE", callback_data=f"analyse:{fid}"),
+            InlineKeyboardButton("🎯 PROBABILITÉS", callback_data=f"prob:{fid}"),
         ],
         [
-            InlineKeyboardButton("⚽ Buts", callback_data=f"buts:{fid}"),
-            InlineKeyboardButton("💰 Cotes", callback_data=f"cotes:{fid}"),
+            InlineKeyboardButton("⚽ BUTS", callback_data=f"buts:{fid}"),
+            InlineKeyboardButton("💰 COTES", callback_data=f"cotes:{fid}"),
         ],
         [
-            InlineKeyboardButton("⚽ Buteurs", callback_data=f"buteur:{fid}"),
-            InlineKeyboardButton("🔬 Simuler", callback_data=f"sim:{fid}"),
+            InlineKeyboardButton("⚽ BUTEURS", callback_data=f"buteur:{fid}"),
+            InlineKeyboardButton("🔬 SIMULER", callback_data=f"sim:{fid}"),
         ],
-        [InlineKeyboardButton("⬅️ Menu principal", callback_data="menu:home")],
+        [
+            InlineKeyboardButton("⬅️ MATCHS", callback_data="menu:match"),
+            InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home"),
+        ],
     ])
 
 
@@ -947,8 +951,8 @@ def match_list_keyboard(matches):
             )
         ])
     rows.append([
-        InlineKeyboardButton("🔄 Actualiser", callback_data="menu:match"),
-        InlineKeyboardButton("🏠 Menu", callback_data="menu:home"),
+        InlineKeyboardButton("🔄 ACTUALISER", callback_data="menu:match"),
+        InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home"),
     ])
     return InlineKeyboardMarkup(rows)
 
@@ -1210,7 +1214,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu:home":
         await query.message.reply_text(
-            "🤖 SPORT ANALYZER V9\n\nChoisis une fonction :",
+            "🤖 SPORT ANALYZER V10\n\nChoisis une fonction :",
             reply_markup=main_menu(),
         )
         return
@@ -1378,7 +1382,7 @@ async def run_analysis_for_message(message, fixture_id, user_id):
     await validate_predictions()
     msg = build_analysis_message(data)
     if len(msg) <= 3900:
-        await message.reply_text(msg, reply_markup=match_keyboard(fixture_id))
+        await message.reply_text(msg, parse_mode="HTML", reply_markup=match_keyboard(fixture_id))
     else:
         for i in range(0, len(msg), 3800):
             await message.reply_text(msg[i:i + 3800])
@@ -1574,7 +1578,7 @@ async def send_status_result(message):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 SPORT ANALYZER V9\n\n"
+        "🤖 SPORT ANALYZER V10\n\n"
         "Analyse football, probabilités, buts, cotes et suivi.\n\n"
         "Utilise les boutons ci-dessous pour naviguer.",
         reply_markup=main_menu(),
@@ -1582,7 +1586,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📊 SPORT ANALYZER V9\n\n"
+        "📊 SPORT ANALYZER V10\n\n"
         "/match = matchs du jour\n"
         "/analyse ID = analyse statistique\n"
         "/buts ID = BTTS, Over/Under et xG modèle\n"
@@ -1875,7 +1879,7 @@ async def webhook(request: Request):
 
 
 async def health(request: Request):
-    return JSONResponse({"status": "ok", "bot": "sport-analyzer-bot-v6"})
+    return JSONResponse({"status": "ok", "bot": "sport-analyzer-bot-v10"})
 
 
 @asynccontextmanager
