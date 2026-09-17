@@ -139,13 +139,6 @@ async def match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "⚽ Matchs du jour\n\n"
-        "Le module des matchs sera connecté à l'API football prochainement."
-    )
-
-
 async def analyse_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📊 Analyse\n\n"
