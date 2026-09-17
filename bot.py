@@ -18,7 +18,7 @@ from starlette.routing import Route
 import uvicorn
 
 # ============================================================
-# SPORT ANALYZER V6
+# SPORT ANALYZER V8
 # Primary source: Football-Data.org
 # Fallback source: TheSportsDB
 # API-Football is intentionally not used by this version.
@@ -810,7 +810,7 @@ def build_analysis_message(data):
     sa = data["standings_away"]
 
     msg = (
-        "🔎 ANALYSE SPORT ANALYZER V6\n\n"
+        "🔎 ANALYSE SPORT ANALYZER V8\n\n"
         f"⚽ {home} - {away}\n"
         f"🏆 {comp}\n"
         f"📅 {date_text}\n"
@@ -951,6 +951,30 @@ def match_list_keyboard(matches):
     return InlineKeyboardMarkup(rows)
 
 
+
+def prob_bar(value, width=10):
+    """Barre colorée compatible avec Telegram."""
+    value = max(0.0, min(100.0, float(value)))
+    filled = round(value / 100.0 * width)
+
+    if value >= 60:
+        color = "🟩"
+    elif value >= 30:
+        color = "🟨"
+    else:
+        color = "🟥"
+
+    return color * filled + "▫️" * (width - filled)
+
+
+def probability_line(label, value, width=10):
+    value = float(value)
+    return f"{label:<12} {prob_bar(value, width)} {value:5.1f}%"
+
+
+def probability_block(items, width=10):
+    return "\n".join(probability_line(label, value, width) for label, value in items)
+
 def simulator_keyboard(fixture_id):
     fid = str(fixture_id)
     return InlineKeyboardMarkup([
@@ -1058,31 +1082,32 @@ async def send_market_menu(message, fixture_id, market):
     if market == "1X2":
         body = (
             "🎯 1X2\n\n"
-            f"1 : {h:.1f}%\nX : {d:.1f}%\n2 : {a:.1f}%\n\n"
-            "Choisis une sélection :"
+            + probability_block([("1", h), ("X", d), ("2", a)])
+            + "\n\nChoisis une sélection :"
         )
     elif market == "DC":
         body = (
             "🔁 DOUBLE CHANCE\n\n"
-            f"1X : {h+d:.1f}%\nX2 : {d+a:.1f}%\n12 : {h+a:.1f}%\n\n"
-            "Choisis une sélection :"
+            + probability_block([("1X", h+d), ("X2", d+a), ("12", h+a)])
+            + "\n\nChoisis une sélection :"
         )
     elif market == "BTTS":
         body = (
             "⚽ BTTS\n\n"
-            f"Oui : {m['btts']:.1f}%\n"
-            f"Non : {100-m['btts']:.1f}%\n\n"
-            "Choisis une sélection :"
+            + probability_block([("Oui", m["btts"]), ("Non", 100-m["btts"])])
+            + "\n\nChoisis une sélection :"
         )
     else:
         body = (
             "📊 OVER / UNDER\n\n"
-            f"Over 1.5 : {m['over15']:.1f}%\n"
-            f"Over 2.5 : {m['over25']:.1f}%\n"
-            f"Over 3.5 : {m['over35']:.1f}%\n"
-            f"Under 2.5 : {m['under25']:.1f}%\n"
-            f"Under 3.5 : {m['under35']:.1f}%\n\n"
-            "Choisis une sélection :"
+            + probability_block([
+                ("Over 1.5", m["over15"]),
+                ("Over 2.5", m["over25"]),
+                ("Over 3.5", m["over35"]),
+                ("Under 2.5", m["under25"]),
+                ("Under 3.5", m["under35"]),
+            ])
+            + "\n\nChoisis une sélection :"
         )
     await message.reply_text(body, reply_markup=market_keyboard(fixture_id, market))
 
@@ -1183,7 +1208,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu:home":
         await query.message.reply_text(
-            "🤖 SPORT ANALYZER V6\n\nChoisis une fonction :",
+            "🤖 SPORT ANALYZER V8\n\nChoisis une fonction :",
             reply_markup=main_menu(),
         )
         return
@@ -1547,7 +1572,7 @@ async def send_status_result(message):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 SPORT ANALYZER V6\n\n"
+        "🤖 SPORT ANALYZER V8\n\n"
         "Analyse football, probabilités, buts, cotes et suivi.\n\n"
         "Utilise les boutons ci-dessous pour naviguer.",
         reply_markup=main_menu(),
@@ -1555,7 +1580,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📊 SPORT ANALYZER V6\n\n"
+        "📊 SPORT ANALYZER V8\n\n"
         "/match = matchs du jour\n"
         "/analyse ID = analyse statistique\n"
         "/buts ID = BTTS, Over/Under et xG modèle\n"
@@ -1675,12 +1700,12 @@ async def probabilite_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     away = data["match"]["awayTeam"]["name"]
     await update.message.reply_text(
         "🎯 PROBABILITÉS\n\n"
-        f"1 {home} : {h:.1f}%\n"
-        f"X Nul : {d:.1f}%\n"
-        f"2 {away} : {a:.1f}%\n\n"
-        f"1X : {h+d:.1f}%\n"
-        f"X2 : {d+a:.1f}%\n"
-        f"12 : {h+a:.1f}%"
+        f"1 {home} : {prob_bar(h)} {h:.1f}%\n"
+        f"X Nul : {prob_bar(d)} {d:.1f}%\n"
+        f"2 {away} : {prob_bar(a)} {a:.1f}%\n\n"
+        f"1X : {prob_bar(h+d)} {h+d:.1f}%\n"
+        f"X2 : {prob_bar(d+a)} {d+a:.1f}%\n"
+        f"12 : {prob_bar(h+a)} {h+a:.1f}%"
     )
 
 
