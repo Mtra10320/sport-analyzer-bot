@@ -1,0 +1,3 @@
+__pycache__/
+*.pyc
+sport_analyzer.db
