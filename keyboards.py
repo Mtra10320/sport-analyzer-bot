@@ -3,32 +3,30 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 def main_menu():
     """
-    1. MENU PRINCIPAL (Grille 2 colonnes + Actualiser)
+    INTERFACE PRINCIPALE - GRILLE 2 COLONNES
     ⚽ MATCHS DU JOUR | 🎯 ANALYSE
     📊 PERFORMANCE   | 💰 BANKROLL
     🔬 SIMULATEUR    | 🔄 VALIDATION
     🔌 SOURCES       | ❓ AIDE
-    🔄 ACTUALISER
     """
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⚽ MATCHS DU JOUR", callback_data="menu:match"), InlineKeyboardButton("🎯 ANALYSE", callback_data="menu:tools")],
         [InlineKeyboardButton("📊 PERFORMANCE", callback_data="menu:performance"), InlineKeyboardButton("💰 BANKROLL", callback_data="menu:bankroll")],
         [InlineKeyboardButton("🔬 SIMULATEUR", callback_data="menu:sim"), InlineKeyboardButton("🔄 VALIDATION", callback_data="menu:validation")],
-        [InlineKeyboardButton("🔌 SOURCES", callback_data="menu:status"), InlineKeyboardButton("❓ AIDE", callback_data="menu:help")],
-        [InlineKeyboardButton("🔄 ACTUALISER", callback_data="menu:home")]
+        [InlineKeyboardButton("🔌 SOURCES", callback_data="menu:status"), InlineKeyboardButton("❓ AIDE", callback_data="menu:help")]
     ])
 
 
 def match_list_keyboard(matches):
     """
-    2. LISTE DES MATCHS (Bouton individuel par match + Navigation)
+    LISTE DES MATCHS - UN BOUTON PAR MATCH
     """
     rows = []
     for item in matches[:15]:
         fid = item.get("id")
         home = item.get("homeTeam", {}).get("name", "Inconnu")
         away = item.get("awayTeam", {}).get("name", "Inconnu")
-        label = f"⚽ {home[:13]} vs {away[:13]}"
+        label = f"🔎 {home[:13]} - {away[:13]}"
         rows.append([InlineKeyboardButton(label, callback_data=f"match:{fid}")])
     rows.append([InlineKeyboardButton("🔄 ACTUALISER", callback_data="menu:match"), InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home")])
     return InlineKeyboardMarkup(rows)
@@ -36,7 +34,7 @@ def match_list_keyboard(matches):
 
 def match_keyboard(fid):
     """
-    FICHE MATCH (Grille 2 colonnes + Navigation)
+    MATCH SÉLECTIONNÉ - GRILLE 2 COLONNES
     🔎 ANALYSE   | 🎯 PROBABILITÉS
     ⚽ BUTS      | 💰 COTES
     ⚽ BUTEURS   | 🔬 SIMULER
@@ -53,11 +51,11 @@ def match_keyboard(fid):
 
 def analysis_menu_keyboard(fid):
     """
-    SOUS-MENU ANALYSE (Grille 2 colonnes + Navigation)
+    SOUS-MENU ANALYSE - GRILLE 2 COLONNES
     🎯 1X2       | 🔄 Double chance
     ⚽ Buts      | 📊 Statistiques
     ⚽ Buteurs   | 💰 Cotes
-    🔬 Simulator | ⬅️ RETOUR
+    🔬 Simulateur| ⬅️ RETOUR
     🏠 ACCUEIL
     """
     fid = str(fid)
@@ -72,7 +70,7 @@ def analysis_menu_keyboard(fid):
 
 def simulator_keyboard(fid):
     """
-    SIMULATEUR (Grille 2 colonnes)
+    SIMULATEUR - GRILLE 2 COLONNES
     🎯 1X2       | 🔄 Double chance
     ⚽ BTTS      | 📈 Over / Under
     ⬅️ RETOUR   | 🏠 ACCUEIL
@@ -114,12 +112,6 @@ def stake_keyboard(fid, market, selection):
 
 
 def tools_keyboard():
-    """
-    OUTILS
-    📊 PERFORMANCE | 🔄 VALIDATION
-    💰 BANKROLL    | 🔌 SOURCES
-    🏠 ACCUEIL
-    """
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 PERFORMANCE", callback_data="menu:performance"), InlineKeyboardButton("🔄 VALIDATION", callback_data="menu:validation")],
         [InlineKeyboardButton("💰 BANKROLL", callback_data="menu:bankroll"), InlineKeyboardButton("🔌 SOURCES", callback_data="menu:status")],
@@ -128,9 +120,6 @@ def tools_keyboard():
 
 
 def help_keyboard():
-    """
-    AIDE
-    """
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⚽ MATCHS DU JOUR", callback_data="menu:match"), InlineKeyboardButton("📈 PERFORMANCE", callback_data="menu:performance")],
         [InlineKeyboardButton("💶 BANKROLL", callback_data="menu:bankroll"), InlineKeyboardButton("🔄 VALIDATION", callback_data="menu:validation")],

@@ -77,7 +77,7 @@ class TestKeyboards(unittest.TestCase):
     def test_keyboards_construction(self):
         kb_main = keyboards.main_menu()
         self.assertIsNotNone(kb_main)
-        self.assertEqual(len(kb_main.inline_keyboard), 5)  # 4 rows of 2 + 1 refresh button
+        self.assertEqual(len(kb_main.inline_keyboard), 4)  # 4 rows of 2 buttons
 
         kb_match = keyboards.match_keyboard("123")
         self.assertIsNotNone(kb_match)

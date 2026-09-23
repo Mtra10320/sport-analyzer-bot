@@ -32,7 +32,7 @@ from keyboards import (
 )
 
 # ============================================================
-# SPORT ANALYZER V13.3 (Interface Texte Légère & Moderne)
+# SPORT ANALYZER V13.3 (Interface Texte 100% HTML)
 # ============================================================
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -43,6 +43,17 @@ telegram_app = None
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def main_welcome_text():
+    return (
+        f"⚡ <b>SPORT ANALYZER • V13.3</b>\n\n"
+        f"<b>FOOTBALL INTELLIGENCE</b>\n"
+        f"🎯 Probabilités • ⚽ Buts • 💰 Cotes\n"
+        f"🔬 Analyses • Simulation • Suivi de performance\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👇 <b>CHOISIS TON MODULE</b>"
+    )
 
 
 async def full_analysis(fixture_id):
@@ -190,7 +201,24 @@ async def send_match_results(message):
     if not matches:
         await send_or_edit(message, "⚽ <b>Aucun match disponible aujourd'hui.</b>", main_menu())
         return
-    text = f"⚡ <b>SPORT ANALYZER • V13.3</b>\n\n⚽ <b>MATCHS DU JOUR</b>\n<i>{today_paris()} • Source: {source}</i>\n\nClique sur un match ci-dessous pour ouvrir ses détails :"
+
+    match_lines = []
+    for m in matches:
+        dt = fd_dt(m)
+        time_str = dt.strftime('%H:%M') if dt else "00:00"
+        home, away = match_names(m)
+        match_lines.append(f"<b>{time_str}</b>\n<b>{home}</b>\nvs\n<b>{away}</b>")
+
+    text = (
+        f"⚡ <b>SPORT ANALYZER • V13.3</b>\n\n"
+        f"📅 <b>MATCHS DU JOUR</b>\n\n"
+        f"Date : {today_paris()}\n"
+        f"Source : {source}\n"
+        f"Nombre de matchs : {len(matches)}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n" +
+        "\n\n".join(match_lines) +
+        f"\n\n👇 <b>Sélectionne un match</b>"
+    )
     await send_or_edit(message, text, match_list_keyboard(matches))
 
 
@@ -204,17 +232,20 @@ async def send_match_actions(message, fid):
     comp = item.get("competition", {}).get("name", "Football")
     dt = fd_dt(item)
     status = fd_status(item.get("status"))
-    date_str = dt.strftime('%H:%M') if dt else "Heure N/D"
+    time_str = dt.strftime('%H:%M') if dt else "00:00"
 
     text = (
         f"⚡ <b>SPORT ANALYZER • V13.3</b>\n\n"
-        f"⚽ <b>{home}</b>\n"
+        f"⚽ <b>MATCH SÉLECTIONNÉ</b>\n\n"
+        f"<b>{home}</b>\n"
         f"vs\n"
         f"<b>{away}</b>\n\n"
-        f"🕒 {date_str} | Statut: <b>{status}</b>\n"
+        f"🕒 {time_str} | Statut: <b>{status}</b>\n"
         f"🏆 {comp}\n"
         f"🆔 ID: <code>{fid}</code>\n\n"
-        f"🎯 <b>Modules disponibles</b>"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📊 <b>MODULES DISPONIBLES</b>\n"
+        f"Analyse • Probabilités • Buts • Cotes • Buteurs • Simulateur"
     )
     await send_or_edit(message, text, match_keyboard(fid))
 
@@ -242,20 +273,24 @@ async def run_analysis_dashboard_for_message(message, fid, user_id):
     scores_str = "\n".join([f"  • <b>{hh}-{aa}</b> : {p:.1f}%" for hh, aa, p in likely_scores(model.get("matrix"), 3)])
 
     text = (
-        f"🔎 <b>DASHBOARD D'ANALYSE</b>\n"
+        f"📊 <b>ANALYSE DU MATCH</b>\n"
         f"⚽ <b>{home}</b> vs <b>{away}</b> ({comp})\n\n"
-        f"📊 <b>Classements & Forme :</b>\n"
-        f"• {home} : {pos_h} {pts_h}\n"
-        f"• {away} : {pos_a} {pts_a}\n\n"
-        f"🎯 <b>Probabilités 1X2 :</b>\n"
-        f"• Domicile (1) : <b>{h:.1f}%</b>\n"
-        f"• Nul (X) : <b>{d:.1f}%</b>\n"
-        f"• Extérieur (2) : <b>{a:.1f}%</b>\n\n"
-        f"⚽ <b>Lignes de Buts & xG :</b>\n"
+        f"🏠 <b>ÉQUIPE DOMICILE ({home})</b>\n"
+        f"• Classement : {pos_h} {pts_h}\n"
+        f"• xG Attendu : {model.get('home_xg', 0):.2f}\n\n"
+        f"✈️ <b>ÉQUIPE EXTÉRIEURE ({away})</b>\n"
+        f"• Classement : {pos_a} {pts_a}\n"
+        f"• xG Attendu : {model.get('away_xg', 0):.2f}\n\n"
+        f"🎯 <b>PROBABILITÉS 1X2</b>\n"
+        f"1 : <b>{h:.1f}%</b>\n"
+        f"N : <b>{d:.1f}%</b>\n"
+        f"2 : <b>{a:.1f}%</b>\n\n"
+        f"⚽ <b>MARCHÉS DE BUTS</b>\n"
         f"• BTTS Oui : <b>{m.get('btts', 0):.1f}%</b>\n"
+        f"• Over 1.5 : <b>{m.get('over15', 0):.1f}%</b>\n"
         f"• Over 2.5 : <b>{m.get('over25', 0):.1f}%</b>\n"
-        f"• xG Estimé : {model.get('home_xg', 0):.2f} - {model.get('away_xg', 0):.2f}\n\n"
-        f"🎯 <b>Scores probables :</b>\n{scores_str}\n"
+        f"• Under 3.5 : <b>{m.get('under35', 0):.1f}%</b>\n\n"
+        f"🎯 <b>SCORES PROBABLES</b>\n{scores_str}"
     )
     await send_or_edit(message, text, analysis_menu_keyboard(fid))
 
@@ -341,7 +376,7 @@ async def run_stats_for_message(message, fid):
 
 async def run_cotes_for_message(message, fid):
     text = (
-        f"📈 <b>INFORMATIONS COTES</b>\n"
+        f"💰 <b>INFORMATIONS COTES</b>\n"
         f"🆔 Match ID: <code>{fid}</code>\n\n"
         f"• Les cotes sont basées sur la cote juste du modèle théorique.\n"
         f"• Pour enregistrer un pari réel avec cote bookmaker, utilise la commande :\n"
@@ -360,7 +395,7 @@ async def run_buteur_for_message(message, fid):
 
     status = item.get("status")
     if status in {"SCHEDULED", "TIMED"}:
-        await send_or_edit(message, "⚽ <b>Match à venir.</b>\nLes événements seront disponibles après le coup d'envoi.", match_keyboard(fid))
+        await send_or_edit(message, "⏳ <b>MATCH À VENIR</b>\n\nCe match n'a pas encore commencé.\nLes événements en direct seront disponibles après le coup d'envoi.", match_keyboard(fid))
         return
 
     if str(fid).startswith("TSDB-"):
@@ -368,11 +403,11 @@ async def run_buteur_for_message(message, fid):
         async with httpx.AsyncClient(timeout=8) as client:
             data, error = await tsdb_get(client, "lookuptimeline.php", {"id": eid}, f"tsdb:timeline:{eid}", 120)
         if error or not data:
-            await send_or_edit(message, "⚽ <b>Aucun événement disponible pour ce match.</b>", match_keyboard(fid))
+            await send_or_edit(message, "⚽ <b>Aucun événement de but disponible.</b>", match_keyboard(fid))
             return
         goals = [x for x in (data.get("timeline", []) or []) if "goal" in str(x.get("strTimeline", "")).lower()]
         if not goals:
-            await send_or_edit(message, "⚽ <b>Aucun événement disponible pour ce match.</b>", match_keyboard(fid))
+            await send_or_edit(message, "⚽ <b>Aucun événement de but disponible.</b>", match_keyboard(fid))
             return
         msg = "⚽ <b>BUTS & ÉVÉNEMENTS :</b>\n\n" + "\n".join(f"• {g.get('strTimeline','But')} | {g.get('strPlayer','Joueur N/D')}" for g in goals[:15])
         await send_or_edit(message, msg, match_keyboard(fid))
@@ -380,9 +415,9 @@ async def run_buteur_for_message(message, fid):
 
     goals = item.get("goals", []) or []
     if not goals:
-        await send_or_edit(message, "⚽ <b>Aucun événement disponible pour ce match.</b>", match_keyboard(fid))
+        await send_or_edit(message, "⚽ <b>Aucun événement de but disponible.</b>", match_keyboard(fid))
         return
-    msg = "👤 <b>BUTEURS & ÉVÉNEMENTS :</b>\n\n"
+    msg = "⚽ <b>BUTEURS & ÉVÉNEMENTS :</b>\n\n"
     for g in goals[:20]:
         scorer = g.get("scorer", {}) or {}
         assist = g.get("assist", {}) or {}
@@ -472,7 +507,7 @@ async def send_stake_result(message, fid, market, selection, stake):
     profit = ret - float(stake)
 
     text = (
-        f"📈 <b>RÉSULTAT DE LA SIMULATION</b>\n\n"
+        f"📊 <b>RÉSULTAT DE LA SIMULATION</b>\n\n"
         f"• Sélection : <b>{selection}</b>\n"
         f"• Probabilité : <b>{p:.1f}%</b>\n"
         f"• Cote juste : <b>{fair:.2f}</b>\n"
@@ -586,16 +621,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id if update.effective_user else 0
     try:
         if data == "menu:home":
-            text = (
-                f"⚡ <b>SPORT ANALYZER V13.3</b>\n"
-                f"╭────────────────────────╮\n"
-                f"│ ⚽ <b>FOOTBALL INTELLIGENCE</b>\n"
-                f"│ 🎯 Probabilités • ⚽ Buts\n"
-                f"│ 💰 Cotes • 🔬 Simulation\n"
-                f"╰────────────────────────╯\n\n"
-                f"👇 <b>CHOISIS TON MODULE :</b>"
-            )
-            await send_or_edit(message, text, main_menu())
+            await send_or_edit(message, main_welcome_text(), main_menu())
             return
         if data == "menu:match":
             await send_match_results(message)
@@ -672,16 +698,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def start(update, context):
-    text = (
-        f"⚡ <b>SPORT ANALYZER V13.3</b>\n"
-        f"╭────────────────────────╮\n"
-        f"│ ⚽ <b>FOOTBALL INTELLIGENCE</b>\n"
-        f"│ 🎯 Probabilités • ⚽ Buts\n"
-        f"│ 💰 Cotes • 🔬 Simulation\n"
-        f"╰────────────────────────╯\n\n"
-        f"👇 <b>CHOISIS TON MODULE :</b>"
-    )
-    await update.message.reply_text(text, parse_mode="HTML", reply_markup=main_menu())
+    await update.message.reply_text(main_welcome_text(), parse_mode="HTML", reply_markup=main_menu())
 
 
 async def help_command(update, context):
