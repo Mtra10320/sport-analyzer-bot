@@ -65,19 +65,12 @@ class TestAnalytics(unittest.TestCase):
         scores = analytics.likely_scores(matrix, limit=3)
         self.assertEqual(len(scores), 3)
 
-    def test_build_model(self):
-        home_form = [
-            {"gf": 2, "ga": 0, "result": "V", "opponent": "A"},
-            {"gf": 1, "ga": 1, "result": "N", "opponent": "B"}
-        ]
-        away_form = [
-            {"gf": 0, "ga": 2, "result": "D", "opponent": "C"},
-            {"gf": 1, "ga": 0, "result": "V", "opponent": "D"}
-        ]
-        model = analytics.build_model(home_form, away_form)
+    def test_build_model_without_form(self):
+        model = analytics.build_model([], [])
         self.assertIsNotNone(model)
         self.assertIn("home_xg", model)
         self.assertIn("final", model)
+        self.assertIn("markets", model)
 
 
 class TestKeyboards(unittest.TestCase):

@@ -95,7 +95,7 @@ def parse_form(matches, team_id):
 
 def form_metrics(form):
     if not form:
-        return {}
+        return {"matches": 0, "gf_avg": 1.35, "ga_avg": 1.25, "wins": 0, "draws": 0, "losses": 0, "points_avg": 1.30}
     n = len(form)
     gf = sum(x["gf"] for x in form)
     ga = sum(x["ga"] for x in form)
@@ -122,11 +122,9 @@ def standings_metrics(standings, team_id):
     return {}
 
 
-def build_model(home_form, away_form):
-    hf = form_metrics(home_form)
-    af = form_metrics(away_form)
-    if not hf or not af:
-        return None
+def build_model(home_form=None, away_form=None):
+    hf = form_metrics(home_form or [])
+    af = form_metrics(away_form or [])
     home_xg = clamp((hf["gf_avg"] + af["ga_avg"]) / 2.0 * 1.08, 0.15, 4.0)
     away_xg = clamp((af["gf_avg"] + hf["ga_avg"]) / 2.0, 0.10, 4.0)
     matrix = poisson_matrix(home_xg, away_xg)

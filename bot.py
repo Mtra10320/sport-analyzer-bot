@@ -21,7 +21,7 @@ from analytics import (
     parse_form, build_model, standings_metrics, likely_scores
 )
 from api_client import (
-    fd_today_matches, tsdb_today_events, tsdb_to_match, find_fd_match,
+    fd_today_matches, tsdb_today_events, tsdb_to_match, find_match_by_id, find_fd_match,
     team_recent, competition_standings, fd_dt, score_pair, tsdb_get,
     FOOTBALL_DATA_KEY, today_paris, PARIS, fd_status, match_names
 )
@@ -46,28 +46,33 @@ def now_iso():
 
 
 async def full_analysis(fixture_id):
-    if str(fixture_id).startswith("TSDB-"):
-        return None, "Les analyses avancées nécessitent actuellement un ID Football-Data.org."
     async with httpx.AsyncClient(timeout=10, limits=httpx.Limits(max_connections=8)) as client:
-        match, error = await find_fd_match(client, fixture_id)
-        if error:
-            return None, error
+        match, error = await find_match_by_id(client, fixture_id)
+        if error or not match:
+            return None, error or "Match introuvable."
+
         home = match.get("homeTeam", {})
         away = match.get("awayTeam", {})
         code = match.get("competition", {}).get("code")
-        (home_recent, e1), (away_recent, e2), (standings, e3) = await asyncio.gather(
-            team_recent(client, home.get("id")),
-            team_recent(client, away.get("id")),
-            competition_standings(client, code)
-        )
-    if e1 or e2:
-        return None, e1 or e2
-    home_form = parse_form(home_recent, home.get("id"))
-    away_form = parse_form(away_recent, away.get("id"))
+
+        home_recent, away_recent, standings = [], [], []
+        e1, e2, e3 = None, None, None
+
+        if home.get("id"):
+            home_recent, e1 = await team_recent(client, home.get("id"))
+        if away.get("id"):
+            away_recent, e2 = await team_recent(client, away.get("id"))
+        if code and code != "TSDB":
+            standings, e3 = await competition_standings(client, code)
+
+    home_form = parse_form(home_recent, home.get("id")) if home_recent else []
+    away_form = parse_form(away_recent, away.get("id")) if away_recent else []
     model = build_model(home_form, away_form)
+
     h2h_obj = match.get("head2head", {})
     h2h = h2h_obj.get("matches", []) if isinstance(h2h_obj, dict) else []
     quality = sum([bool(home_form), bool(away_form), bool(standings), bool(h2h)]) / 4.0
+
     return {
         "match": match,
         "home_form": home_form,
@@ -156,8 +161,13 @@ async def send_or_edit(message, text, reply_markup):
             await message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
         else:
             await message.reply_text(text, parse_mode="HTML", reply_markup=reply_markup)
-    except Exception:
-        await message.reply_text(text, parse_mode="HTML", reply_markup=reply_markup)
+    except Exception as exc:
+        if "Message is not modified" in str(exc):
+            return
+        try:
+            await message.reply_text(text, parse_mode="HTML", reply_markup=reply_markup)
+        except Exception:
+            pass
 
 
 async def send_match_results(message):
@@ -172,25 +182,21 @@ async def send_match_results(message):
             if events:
                 matches = [tsdb_to_match(e) for e in events]
                 source = "TheSportsDB"
-            elif error:
-                await send_or_edit(message, "❌ <b>Aucune source disponible.</b>\n\nVérifie FOOTBALL_DATA_KEY dans Render.", main_menu())
+            elif error or ts_error:
+                await send_or_edit(message, f"❌ <b>Aucune source disponible.</b>\n\n{error or ts_error}", main_menu())
                 return
     matches.sort(key=lambda x: fd_dt(x) or datetime.max.replace(tzinfo=PARIS))
     matches = matches[:15]
     if not matches:
         await send_or_edit(message, "⚽ <b>Aucun match disponible aujourd'hui.</b>", main_menu())
         return
-    text = f"⚡ <b>MATCHS DU JOUR</b>\n<i>{today_paris()} • Source: {source}</i>\n\nClique sur un match ci-dessous pour ouvrir ses détails et sous-menus d'analyse :"
+    text = f"⚡ <b>MATCHS DU JOUR</b>\n<i>{today_paris()} • Source: {source}</i>\n\nClique sur un match ci-dessous pour ouvrir ses détails :"
     await send_or_edit(message, text, match_list_keyboard(matches))
 
 
 async def send_match_actions(message, fid):
     async with httpx.AsyncClient(timeout=8) as client:
-        if str(fid).startswith("TSDB-"):
-            events, error = await tsdb_today_events(client)
-            item = next((tsdb_to_match(e) for e in (events or []) if f"TSDB-{e.get('idEvent')}" == str(fid)), None)
-        else:
-            item, error = await find_fd_match(client, fid)
+        item, error = await find_match_by_id(client, fid)
     if error or not item:
         await send_or_edit(message, f"❌ <b>Match introuvable : {fid}</b>", main_menu())
         return
@@ -337,12 +343,24 @@ async def run_cotes_for_message(message, fid):
 
 
 async def run_buteur_for_message(message, fid):
+    async with httpx.AsyncClient(timeout=8) as client:
+        item, error = await find_match_by_id(client, fid)
+
+    if error or not item:
+        await send_or_edit(message, f"❌ <b>{error or 'Match introuvable'}</b>", match_keyboard(fid))
+        return
+
+    status = item.get("status")
+    if status in {"SCHEDULED", "TIMED"}:
+        await send_or_edit(message, "⚽ <b>Match à venir : les événements seront disponibles après le coup d'envoi.</b>", match_keyboard(fid))
+        return
+
     if str(fid).startswith("TSDB-"):
         eid = str(fid).split("-", 1)[1]
         async with httpx.AsyncClient(timeout=8) as client:
             data, error = await tsdb_get(client, "lookuptimeline.php", {"id": eid}, f"tsdb:timeline:{eid}", 120)
-        if error:
-            await send_or_edit(message, f"❌ <b>{error}</b>", main_menu())
+        if error or not data:
+            await send_or_edit(message, f"❌ <b>{error or 'Erreur lors de la récupération'}</b>", match_keyboard(fid))
             return
         goals = [x for x in (data.get("timeline", []) or []) if "goal" in str(x.get("strTimeline", "")).lower()]
         if not goals:
@@ -352,14 +370,9 @@ async def run_buteur_for_message(message, fid):
         await send_or_edit(message, msg, match_keyboard(fid))
         return
 
-    async with httpx.AsyncClient(timeout=8) as client:
-        data, error = await find_fd_match(client, fid)
-    if error:
-        await send_or_edit(message, f"❌ <b>{error}</b>", main_menu())
-        return
-    goals = data.get("goals", []) or []
+    goals = item.get("goals", []) or []
     if not goals:
-        await send_or_edit(message, "👤 <b>Aucun détail de buteur disponible actuellement pour ce match.</b>", match_keyboard(fid))
+        await send_or_edit(message, "👤 <b>Aucun événement de but disponible pour ce match.</b>", match_keyboard(fid))
         return
     msg = "👤 <b>BUTEURS & ÉVÉNEMENTS :</b>\n\n"
     for g in goals[:20]:
@@ -674,9 +687,6 @@ async def match_command(update, context):
 async def analyse_command(update, context):
     if not context.args:
         await update.message.reply_text("Utilisation : /analyse ID")
-        return
-    if str(context.args[0]).startswith("TSDB-"):
-        await update.message.reply_text("ℹ️ Utilise un ID Football-Data.org pour le dashboard complet.")
         return
     await run_analysis_dashboard_for_message(update.message, context.args[0], update.effective_user.id)
 

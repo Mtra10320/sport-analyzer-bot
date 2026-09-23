@@ -28,7 +28,10 @@ def today_paris():
 
 def fd_dt(item):
     try:
-        return datetime.fromisoformat(item.get("utcDate", "").replace("Z", "+00:00")).astimezone(PARIS)
+        raw = item.get("utcDate", "")
+        if not raw:
+            return None
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(PARIS)
     except Exception:
         return None
 
@@ -128,24 +131,38 @@ def tsdb_to_match(event):
     }
 
 
-async def find_fd_match(client, fixture_id):
+async def find_match_by_id(client, fixture_id):
     if str(fixture_id).startswith("TSDB-"):
-        return None, "Cet ID appartient à TheSportsDB et ne peut pas être analysé par Football-Data.org."
+        eid = str(fixture_id).split("-", 1)[1]
+        data, error = await tsdb_get(client, "lookupevent.php", {"id": eid}, f"tsdb:event:{eid}", 120)
+        if error or not data or not data.get("events"):
+            return None, error or "Match TSDB introuvable."
+        return tsdb_to_match(data["events"][0]), None
     try:
         fid = int(fixture_id)
     except ValueError:
         return None, "ID de match invalide."
     data, error = await fd_get(client, f"/matches/{fid}", {"head2head": 10}, f"fd:match:{fid}", 120)
-    if error:
-        return None, error
-    return data, None if data and data.get("id") else "Match introuvable."
+    if error or not data or not data.get("id"):
+        # Fallback TSDB if FD failed or unavailable
+        events, ts_err = await tsdb_today_events(client)
+        if events:
+            for e in events:
+                if str(e.get("idEvent")) == str(fixture_id):
+                    return tsdb_to_match(e), None
+        return None, error or "Match introuvable."
+    return data, None
+
+
+async def find_fd_match(client, fixture_id):
+    return await find_match_by_id(client, fixture_id)
 
 
 async def team_recent(client, team_id):
     if not team_id:
         return [], "ID équipe absent."
     data, error = await fd_get(client, f"/teams/{team_id}/matches", {"status": "FINISHED", "limit": 5}, f"fd:team:{team_id}:recent", 300)
-    if error:
+    if error or not data:
         return [], error
     return data.get("matches", []), None
 
@@ -154,6 +171,6 @@ async def competition_standings(client, code):
     if not code or code == "TSDB":
         return [], None
     data, error = await fd_get(client, f"/competitions/{code}/standings", {}, f"fd:standings:{code}", 600)
-    if error:
+    if error or not data:
         return [], error
     return data.get("standings", []), None

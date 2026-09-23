@@ -3,7 +3,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 def main_menu():
     """
-    1. MENU PRINCIPAL
+    1. MENU PRINCIPAL (Grille 2 colonnes + Actualiser)
     ⚽ MATCHS DU JOUR | 🎯 ANALYSE
     📊 PERFORMANCE   | 💰 BANKROLL
     🔬 SIMULATEUR    | 🔄 VALIDATION
@@ -21,15 +21,14 @@ def main_menu():
 
 def match_list_keyboard(matches):
     """
-    2. MATCHS DU JOUR
-    Chaque match avec un bouton individuel: ⚽ Domicile vs Extérieure
+    2. LISTE DES MATCHS (Bouton individuel par match + Navigation)
     """
     rows = []
     for item in matches[:15]:
         fid = item.get("id")
         home = item.get("homeTeam", {}).get("name", "Inconnu")
         away = item.get("awayTeam", {}).get("name", "Inconnu")
-        label = f"⚽ {home[:14]} vs {away[:14]}"
+        label = f"⚽ {home[:13]} vs {away[:13]}"
         rows.append([InlineKeyboardButton(label, callback_data=f"match:{fid}")])
     rows.append([InlineKeyboardButton("🔄 ACTUALISER", callback_data="menu:match"), InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home")])
     return InlineKeyboardMarkup(rows)
@@ -37,61 +36,51 @@ def match_list_keyboard(matches):
 
 def match_keyboard(fid):
     """
-    Sous-menu d'un match sélectionné:
+    FICHE MATCH (Grille 2 colonnes + Navigation)
     🔎 ANALYSE   | 🎯 PROBABILITÉS
     ⚽ BUTS      | 👤 BUTEURS
     📈 COTES     | 🔬 SIMULER
-    ⬅️ RETOUR AUX MATCHS | 🏠 ACCUEIL
+    ⬅️ MATCHS    | 🏠 ACCUEIL
     """
     fid = str(fid)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔎 ANALYSE", callback_data=f"analyse:{fid}"), InlineKeyboardButton("🎯 PROBABILITÉS", callback_data=f"prob:{fid}")],
         [InlineKeyboardButton("⚽ BUTS", callback_data=f"buts:{fid}"), InlineKeyboardButton("👤 BUTEURS", callback_data=f"buteur:{fid}")],
         [InlineKeyboardButton("📈 COTES", callback_data=f"cotes:{fid}"), InlineKeyboardButton("🔬 SIMULER", callback_data=f"sim:{fid}")],
-        [InlineKeyboardButton("⬅️ RETOUR AUX MATCHS", callback_data="menu:match"), InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home")]
+        [InlineKeyboardButton("⬅️ MATCHS", callback_data="menu:match"), InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home")]
     ])
 
 
 def analysis_menu_keyboard(fid):
     """
-    3. ANALYSE (Sous-menu complet)
-    🎯 1X2
-    🔄 Double chance
-    ⚽ Marchés de buts
-    📊 Statistiques
-    👤 Buteurs
-    📈 Cotes
-    🔬 Simulateur
-    ⬅️ RETOUR | 🏠 ACCUEIL
+    SOUS-MENU ANALYSE (Grille 2 colonnes + Navigation)
+    🎯 1X2       | 🔄 Double chance
+    ⚽ Buts      | 📊 Statistiques
+    👤 Buteurs   | 📈 Cotes
+    🔬 Simulator | ⬅️ MATCH
+    🏠 ACCUEIL
     """
     fid = str(fid)
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎯 1X2", callback_data=f"prob:{fid}")],
-        [InlineKeyboardButton("🔄 Double chance", callback_data=f"prob:{fid}")],
-        [InlineKeyboardButton("⚽ Marchés de buts", callback_data=f"buts:{fid}")],
-        [InlineKeyboardButton("📊 Statistiques", callback_data=f"stats:{fid}")],
-        [InlineKeyboardButton("👤 Buteurs", callback_data=f"buteur:{fid}")],
-        [InlineKeyboardButton("📈 Cotes", callback_data=f"cotes:{fid}")],
-        [InlineKeyboardButton("🔬 Simulateur", callback_data=f"sim:{fid}")],
-        [InlineKeyboardButton("⬅️ RETOUR", callback_data=f"match:{fid}"), InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home")]
+        [InlineKeyboardButton("🎯 1X2", callback_data=f"prob:{fid}"), InlineKeyboardButton("🔄 Double chance", callback_data=f"prob:{fid}")],
+        [InlineKeyboardButton("⚽ Marchés de buts", callback_data=f"buts:{fid}"), InlineKeyboardButton("📊 Statistiques", callback_data=f"stats:{fid}")],
+        [InlineKeyboardButton("👤 Buteurs", callback_data=f"buteur:{fid}"), InlineKeyboardButton("📈 Cotes", callback_data=f"cotes:{fid}")],
+        [InlineKeyboardButton("🔬 Simulateur", callback_data=f"sim:{fid}"), InlineKeyboardButton("⬅️ RETOUR", callback_data=f"match:{fid}")],
+        [InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home")]
     ])
 
 
 def simulator_keyboard(fid):
     """
-    4. SIMULATEUR
-    1️⃣ 1X2
-    🔄 Double chance
-    ⚽ BTTS
-    📈 Over / Under
-    ⬅️ RETOUR | 🏠 ACCUEIL
+    SIMULATEUR (Grille 2 colonnes)
+    🎯 1X2       | 🔄 Double chance
+    ⚽ BTTS      | 📈 Over / Under
+    ⬅️ RETOUR   | 🏠 ACCUEIL
     """
     fid = str(fid)
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("1️⃣ 1X2", callback_data=f"market:{fid}:1X2")],
-        [InlineKeyboardButton("🔄 Double chance", callback_data=f"market:{fid}:DC")],
-        [InlineKeyboardButton("⚽ BTTS", callback_data=f"market:{fid}:BTTS")],
-        [InlineKeyboardButton("📈 Over / Under", callback_data=f"market:{fid}:OU")],
+        [InlineKeyboardButton("🎯 1X2", callback_data=f"market:{fid}:1X2"), InlineKeyboardButton("🔄 Double chance", callback_data=f"market:{fid}:DC")],
+        [InlineKeyboardButton("⚽ BTTS", callback_data=f"market:{fid}:BTTS"), InlineKeyboardButton("📈 Over / Under", callback_data=f"market:{fid}:OU")],
         [InlineKeyboardButton("⬅️ RETOUR", callback_data=f"match:{fid}"), InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home")]
     ])
 
@@ -126,7 +115,7 @@ def stake_keyboard(fid, market, selection):
 
 def tools_keyboard():
     """
-    5. OUTILS
+    OUTILS
     📊 PERFORMANCE | 🔄 VALIDATION
     💰 BANKROLL    | 🔌 SOURCES
     🏠 ACCUEIL
@@ -140,11 +129,10 @@ def tools_keyboard():
 
 def help_keyboard():
     """
-    6. AIDE
-    Présenter les commandes principales sous forme de boutons cliquables.
+    AIDE
     """
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚽ Matchs du jour", callback_data="menu:match"), InlineKeyboardButton("📈 Performance", callback_data="menu:performance")],
-        [InlineKeyboardButton("💶 Bankroll", callback_data="menu:bankroll"), InlineKeyboardButton("🔄 Validation", callback_data="menu:validation")],
-        [InlineKeyboardButton("🔌 Sources API", callback_data="menu:status"), InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home")]
+        [InlineKeyboardButton("⚽ MATCHS DU JOUR", callback_data="menu:match"), InlineKeyboardButton("📈 PERFORMANCE", callback_data="menu:performance")],
+        [InlineKeyboardButton("💶 BANKROLL", callback_data="menu:bankroll"), InlineKeyboardButton("🔄 VALIDATION", callback_data="menu:validation")],
+        [InlineKeyboardButton("🔌 SOURCES API", callback_data="menu:status"), InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home")]
     ])
