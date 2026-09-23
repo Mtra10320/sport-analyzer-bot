@@ -2,11 +2,9 @@ import os
 import unittest
 import tempfile
 import sqlite3
-from PIL import Image
 
 import database
 import analytics
-import renderer
 import keyboards
 import api_client
 
@@ -82,45 +80,31 @@ class TestAnalytics(unittest.TestCase):
         self.assertIn("final", model)
 
 
-class TestRenderer(unittest.TestCase):
-    def test_render_dashboard(self):
-        data = {
-            "match": {
-                "id": "123",
-                "homeTeam": {"name": "PSG"},
-                "awayTeam": {"name": "OM"},
-                "competition": {"name": "Ligue 1"},
-                "status": "FINISHED"
-            },
-            "model": {
-                "final": (45.0, 30.0, 25.0),
-                "markets": {"btts": 55.0, "over15": 75.0, "over25": 50.0, "over35": 25.0, "under25": 50.0, "under35": 75.0},
-                "home_xg": 1.8,
-                "away_xg": 1.1,
-                "matrix": analytics.poisson_matrix(1.8, 1.1)
-            },
-            "standings_home": {"position": 1, "points": 45, "gf": 40, "ga": 15},
-            "standings_away": {"position": 2, "points": 40, "gf": 35, "ga": 20},
-            "home_form": [{"result": "V"}, {"result": "V"}],
-            "away_form": [{"result": "D"}, {"result": "V"}]
-        }
-        img = renderer.render_dashboard(data)
-        self.assertIsInstance(img, Image.Image)
-        self.assertEqual(img.size, (1024, 1536))
-
-    def test_render_screen(self):
-        img = renderer.render_screen("TEST TITLE", "Test Subtitle", [
-            {"kind": "card", "heading": "CARD", "height": 200, "rows": [("Label", "Value")]}
-        ])
-        self.assertIsInstance(img, Image.Image)
-
-
 class TestKeyboards(unittest.TestCase):
     def test_keyboards_construction(self):
         kb_main = keyboards.main_menu()
         self.assertIsNotNone(kb_main)
+        self.assertEqual(len(kb_main.inline_keyboard), 5)  # 4 rows of 2 + 1 refresh button
+
         kb_match = keyboards.match_keyboard("123")
         self.assertIsNotNone(kb_match)
+
+        kb_match_list = keyboards.match_list_keyboard([
+            {"id": "1", "homeTeam": {"name": "PSG"}, "awayTeam": {"name": "OM"}}
+        ])
+        self.assertIsNotNone(kb_match_list)
+
+        kb_analysis = keyboards.analysis_menu_keyboard("123")
+        self.assertIsNotNone(kb_analysis)
+
+        kb_sim = keyboards.simulator_keyboard("123")
+        self.assertIsNotNone(kb_sim)
+
+        kb_tools = keyboards.tools_keyboard()
+        self.assertIsNotNone(kb_tools)
+
+        kb_help = keyboards.help_keyboard()
+        self.assertIsNotNone(kb_help)
 
 
 class TestApiClient(unittest.TestCase):

@@ -1,5 +1,4 @@
 import os
-import io
 import sqlite3
 import asyncio
 from datetime import datetime, timezone
@@ -19,25 +18,21 @@ from database import (
     db_add_prediction, prediction_outcome, db_performance, DB_PATH
 )
 from analytics import (
-    parse_form, build_model, standings_metrics
+    parse_form, build_model, standings_metrics, likely_scores
 )
 from api_client import (
     fd_today_matches, tsdb_today_events, tsdb_to_match, find_fd_match,
     team_recent, competition_standings, fd_dt, score_pair, tsdb_get,
-    FOOTBALL_DATA_KEY, today_paris, PARIS
+    FOOTBALL_DATA_KEY, today_paris, PARIS, fd_status, match_names
 )
 from keyboards import (
     main_menu, match_keyboard, match_list_keyboard,
-    simulator_keyboard, market_keyboard, stake_keyboard, tools_keyboard
-)
-from renderer import (
-    render_dashboard, render_screen, render_match_list, render_match_selected
+    simulator_keyboard, market_keyboard, stake_keyboard, tools_keyboard,
+    analysis_menu_keyboard, help_keyboard
 )
 
 # ============================================================
-# SPORT ANALYZER V13.3
-# Optimized mobile dashboard
-# Sources: Football-Data.org + TheSportsDB fallback
+# SPORT ANALYZER V13.3 (Interface Texte Légère & Moderne)
 # ============================================================
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -155,6 +150,16 @@ def record_model_predictions(user_id, data):
     return count
 
 
+async def send_or_edit(message, text, reply_markup):
+    try:
+        if hasattr(message, 'edit_text'):
+            await message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+        else:
+            await message.reply_text(text, parse_mode="HTML", reply_markup=reply_markup)
+    except Exception:
+        await message.reply_text(text, parse_mode="HTML", reply_markup=reply_markup)
+
+
 async def send_match_results(message):
     async with httpx.AsyncClient(timeout=8) as client:
         matches = []
@@ -168,18 +173,15 @@ async def send_match_results(message):
                 matches = [tsdb_to_match(e) for e in events]
                 source = "TheSportsDB"
             elif error:
-                await message.reply_text("❌ Aucune source disponible.\n\nVérifie FOOTBALL_DATA_KEY dans Render.", reply_markup=main_menu())
+                await send_or_edit(message, "❌ <b>Aucune source disponible.</b>\n\nVérifie FOOTBALL_DATA_KEY dans Render.", main_menu())
                 return
     matches.sort(key=lambda x: fd_dt(x) or datetime.max.replace(tzinfo=PARIS))
-    matches = matches[:20]
+    matches = matches[:15]
     if not matches:
-        await message.reply_text("⚽ Aucun match disponible aujourd'hui.", reply_markup=main_menu())
+        await send_or_edit(message, "⚽ <b>Aucun match disponible aujourd'hui.</b>", main_menu())
         return
-    img = render_match_list(matches, source)
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    out.seek(0)
-    await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nMatchs du jour", parse_mode="HTML", reply_markup=match_list_keyboard(matches))
+    text = f"⚡ <b>MATCHS DU JOUR</b>\n<i>{today_paris()} • Source: {source}</i>\n\nClique sur un match ci-dessous pour ouvrir ses détails et sous-menus d'analyse :"
+    await send_or_edit(message, text, match_list_keyboard(matches))
 
 
 async def send_match_actions(message, fid):
@@ -190,65 +192,148 @@ async def send_match_actions(message, fid):
         else:
             item, error = await find_fd_match(client, fid)
     if error or not item:
-        await message.reply_text(f"❌ Match introuvable : {fid}", reply_markup=main_menu())
+        await send_or_edit(message, f"❌ <b>Match introuvable : {fid}</b>", main_menu())
         return
-    img = render_match_selected(item, fid)
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    out.seek(0)
-    await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nMatch sélectionné", parse_mode="HTML", reply_markup=match_keyboard(fid))
+    home, away = match_names(item)
+    comp = item.get("competition", {}).get("name", "Football")
+    dt = fd_dt(item)
+    status = fd_status(item.get("status"))
+    date_str = dt.strftime('%d/%m/%Y à %H:%M') if dt else "Heure N/D"
+
+    text = (
+        f"⚽ <b>{home} vs {away}</b>\n"
+        f"🏆 <i>{comp}</i>\n"
+        f"📅 {date_str} | Statut: <b>{status}</b>\n"
+        f"🆔 ID: <code>{fid}</code>\n\n"
+        f"👇 <b>Choisis un module d'analyse :</b>"
+    )
+    await send_or_edit(message, text, match_keyboard(fid))
+
+
+async def run_analysis_dashboard_for_message(message, fid, user_id):
+    data, error = await full_analysis(fid)
+    if error:
+        await send_or_edit(message, f"❌ <b>{error}</b>", main_menu())
+        return
+    record_model_predictions(user_id, data)
+    match = data.get("match", {})
+    home, away = match_names(match)
+    comp = match.get("competition", {}).get("name", "Football")
+    model = data.get("model") or {}
+    h, d, a = model.get("final", (33.3, 33.4, 33.3))
+    m = model.get("markets", {})
+    sh = data.get("standings_home") or {}
+    sa = data.get("standings_away") or {}
+
+    scores_str = "\n".join([f"  • <b>{hh}-{aa}</b> : {p:.1f}%" for hh, aa, p in likely_scores(model.get("matrix"), 3)])
+
+    text = (
+        f"🔎 <b>DASHBOARD D'ANALYSE</b>\n"
+        f"⚽ <b>{home}</b> vs <b>{away}</b> ({comp})\n\n"
+        f"📊 <b>Classements & Forme :</b>\n"
+        f"• {home} : {sh.get('position','N/D')}e ({sh.get('points','N/D')} pts)\n"
+        f"• {away} : {sa.get('position','N/D')}e ({sa.get('points','N/D')} pts)\n\n"
+        f"🎯 <b>Probabilités 1X2 :</b>\n"
+        f"• Domicile (1) : <b>{h:.1f}%</b>\n"
+        f"• Nul (X) : <b>{d:.1f}%</b>\n"
+        f"• Extérieur (2) : <b>{a:.1f}%</b>\n\n"
+        f"⚽ <b>Lignes de Buts & xG :</b>\n"
+        f"• BTTS Oui : <b>{m.get('btts', 0):.1f}%</b>\n"
+        f"• Over 2.5 : <b>{m.get('over25', 0):.1f}%</b>\n"
+        f"• xG Estimé : {model.get('home_xg', 0):.2f} - {model.get('away_xg', 0):.2f}\n\n"
+        f"🎯 <b>Scores probables :</b>\n{scores_str}\n"
+    )
+    await send_or_edit(message, text, analysis_menu_keyboard(fid))
 
 
 async def run_prob_for_message(message, fid):
     data, error = await full_analysis(fid)
     if error:
-        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        await send_or_edit(message, f"❌ <b>{error}</b>", main_menu())
         return
     model = data.get("model")
     if not model:
-        await message.reply_text("❌ Données insuffisantes.", reply_markup=main_menu())
+        await send_or_edit(message, "❌ <b>Données insuffisantes.</b>", main_menu())
         return
     h, d, a = model["final"]
-    img = render_screen("PROBABILITÉS", "Probabilités du modèle • match sélectionné", [
-        {"kind": "bars", "heading": "1X2", "height": 230, "rows": [("1", h), ("X", d), ("2", a)]},
-        {"kind": "bars", "heading": "DOUBLE CHANCE", "height": 230, "rows": [("1X", h + d), ("X2", d + a), ("12", h + a)]}
-    ])
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    out.seek(0)
-    await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nProbabilités", parse_mode="HTML", reply_markup=match_keyboard(fid))
+    text = (
+        f"🎯 <b>PROBABILITÉS DÉTAILLÉES</b>\n"
+        f"🆔 Match ID: <code>{fid}</code>\n\n"
+        f"<b>1X2 :</b>\n"
+        f"• Victoire Domicile (1) : <b>{h:.1f}%</b>\n"
+        f"• Match Nul (X) : <b>{d:.1f}%</b>\n"
+        f"• Victoire Extérieur (2) : <b>{a:.1f}%</b>\n\n"
+        f"<b>Double Chance :</b>\n"
+        f"• 1X : <b>{h+d:.1f}%</b>\n"
+        f"• X2 : <b>{d+a:.1f}%</b>\n"
+        f"• 12 : <b>{h+a:.1f}%</b>"
+    )
+    await send_or_edit(message, text, match_keyboard(fid))
 
 
 async def run_buts_for_message(message, fid):
     data, error = await full_analysis(fid)
     if error:
-        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        await send_or_edit(message, f"❌ <b>{error}</b>", main_menu())
         return
     model = data.get("model")
     if not model:
-        await message.reply_text("❌ Données insuffisantes.", reply_markup=main_menu())
+        await send_or_edit(message, "❌ <b>Données insuffisantes.</b>", main_menu())
         return
     m = model["markets"]
-    img = render_screen("MARCHÉS DE BUTS", "BTTS et lignes Over / Under", [
-        {"kind": "bars", "heading": "BTTS", "height": 160, "rows": [("Oui", m["btts"]), ("Non", 100 - m["btts"])]},
-        {"kind": "bars", "heading": "OVER / UNDER", "height": 330, "rows": [("Over 1.5", m["over15"]), ("Over 2.5", m["over25"]), ("Over 3.5", m["over35"]), ("Under 2.5", m["under25"]), ("Under 3.5", m["under35"])]},
-        {"kind": "card", "heading": "xG ESTIMÉ", "height": 120, "rows": [("Domicile", f"{model['home_xg']:.2f}"), ("Extérieur", f"{model['away_xg']:.2f}")]}
-    ])
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    out.seek(0)
-    await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nMarchés de buts", parse_mode="HTML", reply_markup=match_keyboard(fid))
+    text = (
+        f"⚽ <b>MARCHÉS DE BUTS</b>\n"
+        f"🆔 Match ID: <code>{fid}</code>\n\n"
+        f"<b>Les deux équipes marquent (BTTS) :</b>\n"
+        f"• Oui : <b>{m['btts']:.1f}%</b> | Non : <b>{100-m['btts']:.1f}%</b>\n\n"
+        f"<b>Lignes Over / Under :</b>\n"
+        f"• Over 1.5 : <b>{m['over15']:.1f}%</b>\n"
+        f"• Over 2.5 : <b>{m['over25']:.1f}%</b> | Under 2.5 : <b>{m['under25']:.1f}%</b>\n"
+        f"• Over 3.5 : <b>{m['over35']:.1f}%</b> | Under 3.5 : <b>{m['under35']:.1f}%</b>\n\n"
+        f"📊 <b>Expected Goals (xG) :</b> {model['home_xg']:.2f} - {model['away_xg']:.2f}"
+    )
+    await send_or_edit(message, text, match_keyboard(fid))
+
+
+async def run_stats_for_message(message, fid):
+    data, error = await full_analysis(fid)
+    if error:
+        await send_or_edit(message, f"❌ <b>{error}</b>", main_menu())
+        return
+    sh = data.get("standings_home") or {}
+    sa = data.get("standings_away") or {}
+    hf = data.get("home_form") or []
+    af = data.get("away_form") or []
+
+    hf_str = " ".join(x.get("result", "?") for x in hf[-5:]) or "N/D"
+    af_str = " ".join(x.get("result", "?") for x in af[-5:]) or "N/D"
+
+    text = (
+        f"📊 <b>STATISTIQUES & CLASSEMENT</b>\n"
+        f"🆔 Match ID: <code>{fid}</code>\n\n"
+        f"🏠 <b>Équipe Domicile :</b>\n"
+        f"• Rang : {sh.get('position','N/D')}e ({sh.get('points','N/D')} pts)\n"
+        f"• Bilan : {sh.get('won',0)}V / {sh.get('draw',0)}N / {sh.get('lost',0)}D\n"
+        f"• Buts : {sh.get('gf',0)} pour / {sh.get('ga',0)} contre\n"
+        f"• Forme récente : <b>{hf_str}</b>\n\n"
+        f"✈️ <b>Équipe Extérieure :</b>\n"
+        f"• Rang : {sa.get('position','N/D')}e ({sa.get('points','N/D')} pts)\n"
+        f"• Bilan : {sa.get('won',0)}V / {sa.get('draw',0)}N / {sa.get('lost',0)}D\n"
+        f"• Buts : {sa.get('gf',0)} pour / {sa.get('ga',0)} contre\n"
+        f"• Forme récente : <b>{af_str}</b>"
+    )
+    await send_or_edit(message, text, analysis_menu_keyboard(fid))
 
 
 async def run_cotes_for_message(message, fid):
-    img = render_screen("COTES", "Données bookmaker disponibles selon la source", [
-        {"kind": "card", "heading": "ÉTAT", "height": 190, "rows": [("Cotes automatiques", "Non garanties dans la source gratuite"), ("Principe", "Aucune cote n'est inventée")]},
-        {"kind": "card", "heading": "SAISIE MANUELLE", "height": 160, "rows": [("Commande", "/mise ID marché sélection montant cote"), ("Exemple", "/mise 123 1X2 1 10 1.80")]}
-    ])
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    out.seek(0)
-    await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nCotes", parse_mode="HTML", reply_markup=match_keyboard(fid))
+    text = (
+        f"📈 <b>INFORMATIONS COTES</b>\n"
+        f"🆔 Match ID: <code>{fid}</code>\n\n"
+        f"• Les cotes sont basées sur la cote juste du modèle théorique.\n"
+        f"• Pour enregistrer un pari réel avec cote bookmaker, utilise la commande :\n"
+        f"  <code>/mise {fid} 1X2 1 10 1.80</code>"
+    )
+    await send_or_edit(message, text, match_keyboard(fid))
 
 
 async def run_buteur_for_message(message, fid):
@@ -257,121 +342,96 @@ async def run_buteur_for_message(message, fid):
         async with httpx.AsyncClient(timeout=8) as client:
             data, error = await tsdb_get(client, "lookuptimeline.php", {"id": eid}, f"tsdb:timeline:{eid}", 120)
         if error:
-            await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+            await send_or_edit(message, f"❌ <b>{error}</b>", main_menu())
             return
         goals = [x for x in (data.get("timeline", []) or []) if "goal" in str(x.get("strTimeline", "")).lower()]
         if not goals:
-            await message.reply_text("⚽ Aucun événement de but disponible.", reply_markup=match_keyboard(fid))
+            await send_or_edit(message, "⚽ <b>Aucun événement de but disponible pour ce match.</b>", match_keyboard(fid))
             return
-        msg = "⚽ <b>BUTS / ÉVÉNEMENTS</b>\n\n" + "\n".join(f"• {g.get('strTimeline','But')} | {g.get('strPlayer','Joueur N/D')}" for g in goals[:15])
-        await message.reply_text(msg, parse_mode="HTML", reply_markup=match_keyboard(fid))
+        msg = "⚽ <b>BUTS & ÉVÉNEMENTS :</b>\n\n" + "\n".join(f"• {g.get('strTimeline','But')} | {g.get('strPlayer','Joueur N/D')}" for g in goals[:15])
+        await send_or_edit(message, msg, match_keyboard(fid))
         return
+
     async with httpx.AsyncClient(timeout=8) as client:
         data, error = await find_fd_match(client, fid)
     if error:
-        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        await send_or_edit(message, f"❌ <b>{error}</b>", main_menu())
         return
     goals = data.get("goals", []) or []
     if not goals:
-        await message.reply_text("⚽ Aucun détail de buteur disponible pour ce match.", reply_markup=match_keyboard(fid))
+        await send_or_edit(message, "👤 <b>Aucun détail de buteur disponible actuellement pour ce match.</b>", match_keyboard(fid))
         return
-    msg = "⚽ <b>BUTEURS</b>\n\n"
+    msg = "👤 <b>BUTEURS & ÉVÉNEMENTS :</b>\n\n"
     for g in goals[:20]:
         scorer = g.get("scorer", {}) or {}
         assist = g.get("assist", {}) or {}
-        msg += f"• {g.get('minute','?')}' {scorer.get('name','N/D')}" + (f" | passe : {assist['name']}" if assist.get('name') else "") + "\n"
-    await message.reply_text(msg, parse_mode="HTML", reply_markup=match_keyboard(fid))
-
-
-async def run_analysis_dashboard_for_message(message, fid, user_id):
-    data, error = await full_analysis(fid)
-    if error:
-        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
-        return
-    record_model_predictions(user_id, data)
-    img = render_dashboard(data)
-    output = io.BytesIO()
-    img.save(output, format="PNG", optimize=True)
-    output.seek(0)
-    await message.reply_photo(photo=output.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nDashboard mobile • données dynamiques", parse_mode="HTML", reply_markup=match_keyboard(fid))
+        msg += f"• {g.get('minute','?')}' {scorer.get('name','N/D')}" + (f" (passe: {assist['name']})" if assist.get('name') else "") + "\n"
+    await send_or_edit(message, msg, match_keyboard(fid))
 
 
 async def send_simulator_menu(message, fid):
-    img = render_screen("SIMULATEUR", "Étudie un marché puis une mise théorique", [
-        {"kind": "card", "heading": "MARCHÉS", "height": 250, "rows": [("1X2", "Victoire domicile / nul / extérieur"), ("Double chance", "1X • X2 • 12"), ("BTTS", "Oui / Non"), ("Over / Under", "1.5 • 2.5 • 3.5")]}
-    ])
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    out.seek(0)
-    await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nSimulateur", parse_mode="HTML", reply_markup=simulator_keyboard(fid))
+    text = (
+        f"🔬 <b>SIMULATEUR DE PARIS</b>\n"
+        f"🆔 Match ID: <code>{fid}</code>\n\n"
+        f"Choisis un marché à étudier pour calculer la cote juste et le rendement théorique :"
+    )
+    await send_or_edit(message, text, simulator_keyboard(fid))
 
 
 async def send_market_menu(message, fid, market):
     data, error = await full_analysis(fid)
     if error:
-        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        await send_or_edit(message, f"❌ <b>{error}</b>", main_menu())
         return
     model = data.get("model")
     if not model:
-        await message.reply_text("❌ Données insuffisantes.", reply_markup=main_menu())
+        await send_or_edit(message, "❌ <b>Données insuffisantes.</b>", main_menu())
         return
-    h, d, a = model["final"]
-    m = model["markets"]
-    datasets = {
-        "1X2": [("1", h), ("X", d), ("2", a)],
-        "DC": [("1X", h + d), ("X2", d + a), ("12", h + a)],
-        "BTTS": [("Oui", m["btts"]), ("Non", 100 - m["btts"])],
-        "OU": [("Over 1.5", m["over15"]), ("Over 2.5", m["over25"]), ("Over 3.5", m["over35"]), ("Under 2.5", m["under25"]), ("Under 3.5", m["under35"])]
-    }
-    title = {"1X2": "1X2", "DC": "DOUBLE CHANCE", "BTTS": "BTTS", "OU": "OVER / UNDER"}[market]
-    img = render_screen(title, "Choisis une sélection à simuler", [{"kind": "bars", "heading": "PROBABILITÉS", "height": 300, "rows": datasets[market]}])
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    out.seek(0)
-    await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nChoix du marché", parse_mode="HTML", reply_markup=market_keyboard(fid, market))
+    text = f"🔬 <b>SÉLECTIONNE TA SÉLECTION ({market}) :</b>\n"
+    await send_or_edit(message, text, market_keyboard(fid, market))
 
 
 async def send_pick_stake_menu(message, fid, market, selection):
     data, error = await full_analysis(fid)
     if error:
-        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        await send_or_edit(message, f"❌ <b>{error}</b>", main_menu())
         return
     model = data.get("model")
     if not model:
-        await message.reply_text("❌ Données insuffisantes.", reply_markup=main_menu())
+        await send_or_edit(message, "❌ <b>Données insuffisantes.</b>", main_menu())
         return
     h, d, a = model["final"]
     m = model["markets"]
     vals = {
-        "1": ("1", h), "X": ("X", d), "2": ("2", a),
-        "1X": ("1X", h + d), "X2": ("X2", d + a), "12": ("12", h + a),
+        "1": ("1 (Victoire Domicile)", h), "X": ("X (Match Nul)", d), "2": ("2 (Victoire Extérieur)", a),
+        "1X": ("1X (Domicile ou Nul)", h + d), "X2": ("X2 (Nul ou Extérieur)", d + a), "12": ("12 (Non Nul)", h + a),
         "BTTSY": ("BTTS Oui", m["btts"]), "BTTSN": ("BTTS Non", 100 - m["btts"]),
         "O15": ("Over 1.5", m["over15"]), "O25": ("Over 2.5", m["over25"]), "O35": ("Over 3.5", m["over35"]),
         "U25": ("Under 2.5", m["under25"]), "U35": ("Under 3.5", m["under35"])
     }
     label, p = vals.get(selection, ("Sélection", 0))
     if p <= 0:
-        await message.reply_text("❌ Probabilité indisponible.", reply_markup=main_menu())
+        await send_or_edit(message, "❌ <b>Probabilité indisponible.</b>", main_menu())
         return
     fair = 100 / p
-    img = render_screen("SIMULATION", "Sélection et cote juste théorique", [
-        {"kind": "card", "heading": "SÉLECTION", "height": 220, "rows": [("Choix", label), ("Probabilité modèle", f"{p:.1f}%"), ("Cote juste", f"{fair:.2f}")]},
-        {"kind": "card", "heading": "MISE THÉORIQUE", "height": 160, "rows": [("5 €", "simulation"), ("10 €", "simulation"), ("20 €", "simulation"), ("50 €", "simulation")]}
-    ])
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    out.seek(0)
-    await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nSimulation", parse_mode="HTML", reply_markup=stake_keyboard(fid, market, selection))
+    text = (
+        f"💰 <b>SIMULATION DE MISE</b>\n\n"
+        f"• Choix : <b>{label}</b>\n"
+        f"• Probabilité modèle : <b>{p:.1f}%</b>\n"
+        f"• Cote juste théorique : <b>{fair:.2f}</b>\n\n"
+        f"👇 <b>Sélectionne une mise à simuler :</b>"
+    )
+    await send_or_edit(message, text, stake_keyboard(fid, market, selection))
 
 
 async def send_stake_result(message, fid, market, selection, stake):
     data, error = await full_analysis(fid)
     if error:
-        await message.reply_text(f"❌ {error}", reply_markup=main_menu())
+        await send_or_edit(message, f"❌ <b>{error}</b>", main_menu())
         return
     model = data.get("model")
     if not model:
-        await message.reply_text("❌ Données insuffisantes.", reply_markup=main_menu())
+        await send_or_edit(message, "❌ <b>Données insuffisantes.</b>", main_menu())
         return
     h, d, a = model["final"]
     m = model["markets"]
@@ -384,54 +444,72 @@ async def send_stake_result(message, fid, market, selection, stake):
     }
     p = float(probs.get(selection, 0))
     if p <= 0:
-        await message.reply_text("❌ Probabilité indisponible.", reply_markup=main_menu())
+        await send_or_edit(message, "❌ <b>Probabilité indisponible.</b>", main_menu())
         return
     fair = 100 / p
     ret = float(stake) * fair
     profit = ret - float(stake)
-    img = render_screen("SIMULATION", "Résultat théorique • aucune mise réelle engagée", [
-        {"kind": "card", "heading": "RÉSULTAT", "height": 320, "rows": [
-            ("Sélection", selection), ("Probabilité", f"{p:.1f}%"), ("Mise", f"{float(stake):.2f} €"),
-            ("Cote juste", f"{fair:.2f}"), ("Retour théorique", f"{ret:.2f} €"), ("Profit théorique", f"{profit:+.2f} €")
-        ]}
+
+    text = (
+        f"📈 <b>RÉSULTAT DE LA SIMULATION</b>\n\n"
+        f"• Sélection : <b>{selection}</b>\n"
+        f"• Probabilité : <b>{p:.1f}%</b>\n"
+        f"• Cote juste : <b>{fair:.2f}</b>\n"
+        f"• Mise engagée : <b>{float(stake):.2f} €</b>\n"
+        f"• Gain brut potentiel : <b>{ret:.2f} €</b>\n"
+        f"• Profit théorique : <b>{profit:+.2f} €</b>"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔬 Autre marché", callback_data=f"sim:{fid}"), InlineKeyboardButton("🔎 Analyse", callback_data=f"analyse:{fid}")],
+        [InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home")]
     ])
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    out.seek(0)
-    await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nSimulation terminée", parse_mode="HTML", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔬 Autre marché", callback_data=f"sim:{fid}"), InlineKeyboardButton("🔎 Analyse", callback_data=f"analyse:{fid}")], [InlineKeyboardButton("🏠 Menu principal", callback_data="menu:home")]]))
+    await send_or_edit(message, text, kb)
 
 
 async def send_performance_result(message, user_id):
     await validate_predictions()
     perf = db_performance(user_id)
-    rows = [("Prédictions validées", perf["total"]), ("Correctes", perf["wins"]), ("Taux de réussite", f"{perf['accuracy']:.1f}%" if perf["accuracy"] is not None else "N/D")]
-    for k, v in sorted(perf["markets"].items()):
-        rows.append((k, f"{v['wins']}/{v['total']}  •  {v['wins']/v['total']*100:.1f}%"))
-    img = render_screen("PERFORMANCE", "Résultats calculés sur les prédictions validées", [{"kind": "card", "heading": "TABLEAU DE BORD", "height": 560, "rows": rows}])
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    out.seek(0)
-    await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nPerformance", parse_mode="HTML", reply_markup=main_menu())
+    text = (
+        f"📊 <b>TABLEAU DE PERFORMANCE</b>\n\n"
+        f"• Prédictions validées : <b>{perf['total']}</b>\n"
+        f"• Prédictions correctes : <b>{perf['wins']}</b>\n"
+        f"• Taux de réussite global : <b>{perf['accuracy']:.1f}%</b>\n\n" if perf["accuracy"] is not None else "• Taux de réussite : N/D\n\n"
+    )
+    if perf["markets"]:
+        text += "<b>Détail par marché :</b>\n"
+        for k, v in sorted(perf["markets"].items()):
+            rate = (v['wins'] / v['total'] * 100) if v['total'] else 0
+            text += f"• {k} : {v['wins']}/{v['total']} ({rate:.1f}%)\n"
+
+    await send_or_edit(message, text, tools_keyboard())
 
 
 async def send_validation_result(message, user_id):
     checked = await validate_predictions()
     perf = db_performance(user_id)
-    text = f"🔄 <b>VALIDATION</b>\n\nPrédictions nouvellement validées : {checked}\n"
-    text += f"Prédictions terminées : {perf['total']}\nTaux de réussite : {perf['accuracy']:.1f}%" if perf["accuracy"] is not None else "Aucune prédiction terminée dans ton historique."
-    await message.reply_text(text, parse_mode="HTML", reply_markup=main_menu())
+    text = (
+        f"🔄 <b>VALIDATION DES PRÉDICTIONS</b>\n\n"
+        f"• Nouvelles prédictions validées : <b>{checked}</b>\n"
+        f"• Total prédictions terminées : <b>{perf['total']}</b>\n"
+    )
+    if perf["accuracy"] is not None:
+        text += f"• Taux de réussite actuel : <b>{perf['accuracy']:.1f}%</b>"
+    else:
+        text += "• Aucune prédiction terminée dans l'historique."
+    await send_or_edit(message, text, tools_keyboard())
 
 
 async def send_bankroll_result(message, user_id):
     total, profit, count, wins, roi = db_summary(user_id)
-    img = render_screen("BANKROLL", "Suivi des mises enregistrées", [
-        {"kind": "card", "heading": "SUIVI FINANCIER", "height": 300, "rows": [("Mises enregistrées", f"{total:.2f} €"), ("Profit / perte", f"{profit:+.2f} €"), ("Paris", count), ("Paris gagnants", wins), ("ROI", f"{roi:+.2f}%")]},
-        {"kind": "card", "heading": "NOTE", "height": 130, "rows": [("Comptabilité", "Les mises doivent être saisies par l'utilisateur")]}
-    ])
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    out.seek(0)
-    await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nBankroll", parse_mode="HTML", reply_markup=main_menu())
+    text = (
+        f"💰 <b>SUIVI BANKROLL & PARIS</b>\n\n"
+        f"• Total misé : <b>{total:.2f} €</b>\n"
+        f"• Profit / Perte : <b>{profit:+.2f} €</b>\n"
+        f"• Nombre de paris : <b>{count}</b> (gagnants: {wins})\n"
+        f"• ROI : <b>{roi:+.2f}%</b>\n\n"
+        f"💡 <i>Utilise /mise pour enregistrer tes paris réels.</i>"
+    )
+    await send_or_edit(message, text, tools_keyboard())
 
 
 async def send_status_result(message):
@@ -439,21 +517,36 @@ async def send_status_result(message):
         fd_ok = False
         detail = "Clé absente"
         if FOOTBALL_DATA_KEY:
-            data, error = await find_fd_match(client, 1)  # simple request check or today matches
             from api_client import fd_get
             data, error = await fd_get(client, "/matches", {"date": today_paris()}, "fd:status", 30)
             fd_ok = data is not None and error is None
             detail = "OK" if fd_ok else str(error)
         ts_data, ts_error = await tsdb_get(client, "eventsday.php", {"d": today_paris(), "s": "Soccer"}, "tsdb:status", 30)
         ts_ok = ts_data is not None and ts_error is None
-    img = render_screen("ÉTAT DES SOURCES", "Contrôle rapide des fournisseurs de données", [
-        {"kind": "card", "heading": "SOURCES", "height": 230, "rows": [("Football-Data.org", "OK" if fd_ok else "Indisponible", (28, 221, 92) if fd_ok else (255, 67, 67)), ("TheSportsDB", "OK" if ts_ok else "Indisponible", (28, 221, 92) if ts_ok else (255, 67, 67)), ("API-Football", "désactivée dans V13.3", (181, 199, 222))]},
-        {"kind": "card", "heading": "DÉTAIL", "height": 170, "rows": [("Football-Data.org", detail[:90])]}
-    ])
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    out.seek(0)
-    await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nÉtat des sources", parse_mode="HTML", reply_markup=main_menu())
+
+    text = (
+        f"🔌 <b>ÉTAT DES SOURCES DE DONNÉES</b>\n\n"
+        f"• Football-Data.org : <b>{'🟢 OK' if fd_ok else '🔴 Indisponible'}</b> ({detail[:60]})\n"
+        f"• TheSportsDB : <b>{'🟢 OK' if ts_ok else '🔴 Indisponible'}</b>\n"
+    )
+    await send_or_edit(message, text, tools_keyboard())
+
+
+async def send_help_result(message):
+    text = (
+        f"❓ <b>AIDE & COMMANDES PRINCIPALES</b>\n\n"
+        f"Clique sur les boutons ci-dessous ou tape directement une commande :\n\n"
+        f"• <code>/match</code> - Matchs du jour\n"
+        f"• <code>/analyse ID</code> - Dashboard d'analyse\n"
+        f"• <code>/probabilite ID</code> - Probabilités 1X2\n"
+        f"• <code>/buts ID</code> - Marchés Over/Under & BTTS\n"
+        f"• <code>/buteur ID</code> - Détails des événements/buteurs\n"
+        f"• <code>/mise ID marché choix montant [cote]</code> - Parier\n"
+        f"• <code>/resultat ID_BET win|loss|void</code> - Dénouer un pari\n"
+        f"• <code>/bankroll</code> - Suivi comptable\n"
+        f"• <code>/performance</code> - Taux de réussite du modèle"
+    )
+    await send_or_edit(message, text, help_keyboard())
 
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -472,14 +565,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id if update.effective_user else 0
     try:
         if data == "menu:home":
-            img = render_screen("MENU PRINCIPAL", "Football intelligence • données dynamiques", [
-                {"kind": "card", "heading": "MODULES", "height": 380, "rows": [("Matchs du jour", "Rencontres disponibles"), ("Analyse", "Dashboard complet"), ("Probabilités", "1X2 • double chance"), ("Buts", "BTTS • Over/Under"), ("Cotes", "Sources et saisie manuelle"), ("Buteurs", "Événements disponibles"), ("Simulateur", "Mises théoriques")]},
-                {"kind": "card", "heading": "SUIVI", "height": 150, "rows": [("Performance", "Validation des prédictions"), ("Bankroll", "Mises et ROI")]}
-            ])
-            out = io.BytesIO()
-            img.save(out, format="PNG", optimize=True)
-            out.seek(0)
-            await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nMenu principal", parse_mode="HTML", reply_markup=main_menu())
+            text = (
+                f"⚡ <b>SPORT ANALYZER V13.3</b>\n"
+                f"╭────────────────────────╮\n"
+                f"│ ⚽ <b>FOOTBALL INTELLIGENCE</b>\n"
+                f"│ 🎯 Probabilités • ⚽ Buts\n"
+                f"│ 💰 Cotes • 🔬 Simulation\n"
+                f"╰────────────────────────╯\n\n"
+                f"👇 <b>CHOISIS TON MODULE :</b>"
+            )
+            await send_or_edit(message, text, main_menu())
             return
         if data == "menu:match":
             await send_match_results(message)
@@ -497,25 +592,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_bankroll_result(message, uid)
             return
         if data == "menu:sim":
-            img = render_screen("SIMULATEUR", "Les rendements affichés sont théoriques", [{"kind": "card", "heading": "UTILISATION", "height": 220, "rows": [("1", "Ouvre un match"), ("2", "Choisis un marché"), ("3", "Choisis une mise théorique")]}])
-            out = io.BytesIO()
-            img.save(out, format="PNG", optimize=True)
-            out.seek(0)
-            await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nSimulateur", parse_mode="HTML", reply_markup=main_menu())
+            text = "🔬 <b>SIMULATEUR DE PARIS</b>\n\nSélectionne un match pour démarrer une simulation de cote et de mise théorique."
+            await send_or_edit(message, text, main_menu())
             return
         if data == "menu:tools":
-            img = render_screen("OUTILS", "Suivi, validation et sources", [{"kind": "card", "heading": "OUTILS", "height": 260, "rows": [("Performance", "Taux de réussite"), ("Validation", "Résultats terminés"), ("Bankroll", "Mises et ROI"), ("Sources", "État des APIs")]}])
-            out = io.BytesIO()
-            img.save(out, format="PNG", optimize=True)
-            out.seek(0)
-            await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nOutils", parse_mode="HTML", reply_markup=tools_keyboard())
+            text = "🎯 <b>OUTILS ET SUIVI</b>\n\nChoisis une option de suivi ou d'analyse :"
+            await send_or_edit(message, text, tools_keyboard())
             return
         if data == "menu:help":
-            img = render_screen("AIDE RAPIDE", "Commandes et fonctionnement", [{"kind": "card", "heading": "COMMANDES", "height": 430, "rows": [("/match", "Matchs du jour"), ("/analyse ID", "Dashboard"), ("/probabilite ID", "Probabilités"), ("/buts ID", "Marchés de buts"), ("/buteur ID", "Buteurs / événements"), ("/mise ...", "Enregistrer une mise"), ("/performance", "Performance"), ("/validation", "Validation")]}])
-            out = io.BytesIO()
-            img.save(out, format="PNG", optimize=True)
-            out.seek(0)
-            await message.reply_photo(photo=out.getvalue(), caption="⚡ <b>SPORT ANALYZER • V13.3</b>\nAide", parse_mode="HTML", reply_markup=main_menu())
+            await send_help_result(message)
             return
         if ":" not in data:
             return
@@ -531,6 +616,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if action == "buts":
             await run_buts_for_message(message, value)
+            return
+        if action == "stats":
+            await run_stats_for_message(message, value)
             return
         if action == "cotes":
             await run_cotes_for_message(message, value)
@@ -553,21 +641,30 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fid, market, selection, stake = value.split(":", 3)
             await send_stake_result(message, fid, market, selection, float(stake))
             return
-        await message.reply_text(f"⚠️ Action inconnue : {action}", reply_markup=main_menu())
+        await send_or_edit(message, f"⚠️ Action inconnue : {action}", main_menu())
     except Exception as exc:
         print(f"❌ CALLBACK ERROR [{data}] : {exc}", flush=True)
         try:
-            await message.reply_text("❌ <b>Une erreur est survenue.</b>\n\nUtilise 🏠 Accueil pour continuer.", parse_mode="HTML", reply_markup=main_menu())
+            await send_or_edit(message, "❌ <b>Une erreur est survenue.</b>\n\nUtilise 🏠 Accueil pour continuer.", main_menu())
         except Exception as reply_error:
             print(f"❌ Reply error: {reply_error}", flush=True)
 
 
 async def start(update, context):
-    await update.message.reply_text("⚡ <b>SPORT ANALYZER • V13.3</b>\n╭────────────────────────╮\n│ ⚽ <b>FOOTBALL INTELLIGENCE</b>\n│ 🎯 Probabilités  •  ⚽ Buts\n│ 💰 Cotes  •  🔬 Simulation\n╰────────────────────────╯\n\n👇 <b>CHOISIS TON MODULE</b>", parse_mode="HTML", reply_markup=main_menu())
+    text = (
+        f"⚡ <b>SPORT ANALYZER V13.3</b>\n"
+        f"╭────────────────────────╮\n"
+        f"│ ⚽ <b>FOOTBALL INTELLIGENCE</b>\n"
+        f"│ 🎯 Probabilités • ⚽ Buts\n"
+        f"│ 💰 Cotes • 🔬 Simulation\n"
+        f"╰────────────────────────╯\n\n"
+        f"👇 <b>CHOISIS TON MODULE :</b>"
+    )
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=main_menu())
 
 
 async def help_command(update, context):
-    await update.message.reply_text("📊 <b>SPORT ANALYZER V13.3</b>\n\n/match\n/analyse ID\n/buts ID\n/probabilite ID\n/buteur ID\n/cotes ID\n/mise ID marché sélection montant [cote]\n/resultat ID_BET win|loss|void\n/bankroll\n/statusapi\n/performance\n/validation", parse_mode="HTML")
+    await send_help_result(update.message)
 
 
 async def match_command(update, context):
@@ -581,7 +678,6 @@ async def analyse_command(update, context):
     if str(context.args[0]).startswith("TSDB-"):
         await update.message.reply_text("ℹ️ Utilise un ID Football-Data.org pour le dashboard complet.")
         return
-    await update.message.reply_text("🔎 Génération du dashboard…")
     await run_analysis_dashboard_for_message(update.message, context.args[0], update.effective_user.id)
 
 
