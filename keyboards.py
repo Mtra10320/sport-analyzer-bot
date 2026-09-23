@@ -38,15 +38,15 @@ def match_keyboard(fid):
     """
     FICHE MATCH (Grille 2 colonnes + Navigation)
     🔎 ANALYSE   | 🎯 PROBABILITÉS
-    ⚽ BUTS      | 👤 BUTEURS
-    📈 COTES     | 🔬 SIMULER
+    ⚽ BUTS      | 💰 COTES
+    ⚽ BUTEURS   | 🔬 SIMULER
     ⬅️ MATCHS    | 🏠 ACCUEIL
     """
     fid = str(fid)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔎 ANALYSE", callback_data=f"analyse:{fid}"), InlineKeyboardButton("🎯 PROBABILITÉS", callback_data=f"prob:{fid}")],
-        [InlineKeyboardButton("⚽ BUTS", callback_data=f"buts:{fid}"), InlineKeyboardButton("👤 BUTEURS", callback_data=f"buteur:{fid}")],
-        [InlineKeyboardButton("📈 COTES", callback_data=f"cotes:{fid}"), InlineKeyboardButton("🔬 SIMULER", callback_data=f"sim:{fid}")],
+        [InlineKeyboardButton("⚽ BUTS", callback_data=f"buts:{fid}"), InlineKeyboardButton("💰 COTES", callback_data=f"cotes:{fid}")],
+        [InlineKeyboardButton("⚽ BUTEURS", callback_data=f"buteur:{fid}"), InlineKeyboardButton("🔬 SIMULER", callback_data=f"sim:{fid}")],
         [InlineKeyboardButton("⬅️ MATCHS", callback_data="menu:match"), InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home")]
     ])
 
@@ -56,15 +56,15 @@ def analysis_menu_keyboard(fid):
     SOUS-MENU ANALYSE (Grille 2 colonnes + Navigation)
     🎯 1X2       | 🔄 Double chance
     ⚽ Buts      | 📊 Statistiques
-    👤 Buteurs   | 📈 Cotes
-    🔬 Simulator | ⬅️ MATCH
+    ⚽ Buteurs   | 💰 Cotes
+    🔬 Simulator | ⬅️ RETOUR
     🏠 ACCUEIL
     """
     fid = str(fid)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎯 1X2", callback_data=f"prob:{fid}"), InlineKeyboardButton("🔄 Double chance", callback_data=f"prob:{fid}")],
         [InlineKeyboardButton("⚽ Marchés de buts", callback_data=f"buts:{fid}"), InlineKeyboardButton("📊 Statistiques", callback_data=f"stats:{fid}")],
-        [InlineKeyboardButton("👤 Buteurs", callback_data=f"buteur:{fid}"), InlineKeyboardButton("📈 Cotes", callback_data=f"cotes:{fid}")],
+        [InlineKeyboardButton("⚽ Buteurs", callback_data=f"buteur:{fid}"), InlineKeyboardButton("💰 Cotes", callback_data=f"cotes:{fid}")],
         [InlineKeyboardButton("🔬 Simulateur", callback_data=f"sim:{fid}"), InlineKeyboardButton("⬅️ RETOUR", callback_data=f"match:{fid}")],
         [InlineKeyboardButton("🏠 ACCUEIL", callback_data="menu:home")]
     ])

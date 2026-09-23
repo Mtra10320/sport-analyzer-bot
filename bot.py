@@ -190,7 +190,7 @@ async def send_match_results(message):
     if not matches:
         await send_or_edit(message, "⚽ <b>Aucun match disponible aujourd'hui.</b>", main_menu())
         return
-    text = f"⚡ <b>MATCHS DU JOUR</b>\n<i>{today_paris()} • Source: {source}</i>\n\nClique sur un match ci-dessous pour ouvrir ses détails :"
+    text = f"⚡ <b>SPORT ANALYZER • V13.3</b>\n\n⚽ <b>MATCHS DU JOUR</b>\n<i>{today_paris()} • Source: {source}</i>\n\nClique sur un match ci-dessous pour ouvrir ses détails :"
     await send_or_edit(message, text, match_list_keyboard(matches))
 
 
@@ -204,14 +204,17 @@ async def send_match_actions(message, fid):
     comp = item.get("competition", {}).get("name", "Football")
     dt = fd_dt(item)
     status = fd_status(item.get("status"))
-    date_str = dt.strftime('%d/%m/%Y à %H:%M') if dt else "Heure N/D"
+    date_str = dt.strftime('%H:%M') if dt else "Heure N/D"
 
     text = (
-        f"⚽ <b>{home} vs {away}</b>\n"
-        f"🏆 <i>{comp}</i>\n"
-        f"📅 {date_str} | Statut: <b>{status}</b>\n"
+        f"⚡ <b>SPORT ANALYZER • V13.3</b>\n\n"
+        f"⚽ <b>{home}</b>\n"
+        f"vs\n"
+        f"<b>{away}</b>\n\n"
+        f"🕒 {date_str} | Statut: <b>{status}</b>\n"
+        f"🏆 {comp}\n"
         f"🆔 ID: <code>{fid}</code>\n\n"
-        f"👇 <b>Choisis un module d'analyse :</b>"
+        f"🎯 <b>Modules disponibles</b>"
     )
     await send_or_edit(message, text, match_keyboard(fid))
 
@@ -231,14 +234,19 @@ async def run_analysis_dashboard_for_message(message, fid, user_id):
     sh = data.get("standings_home") or {}
     sa = data.get("standings_away") or {}
 
+    pos_h = f"{sh.get('position')}e" if sh.get('position') else "Donnée indisponible"
+    pts_h = f"{sh.get('points')} pts" if sh.get('points') is not None else ""
+    pos_a = f"{sa.get('position')}e" if sa.get('position') else "Donnée indisponible"
+    pts_a = f"{sa.get('points')} pts" if sa.get('points') is not None else ""
+
     scores_str = "\n".join([f"  • <b>{hh}-{aa}</b> : {p:.1f}%" for hh, aa, p in likely_scores(model.get("matrix"), 3)])
 
     text = (
         f"🔎 <b>DASHBOARD D'ANALYSE</b>\n"
         f"⚽ <b>{home}</b> vs <b>{away}</b> ({comp})\n\n"
         f"📊 <b>Classements & Forme :</b>\n"
-        f"• {home} : {sh.get('position','N/D')}e ({sh.get('points','N/D')} pts)\n"
-        f"• {away} : {sa.get('position','N/D')}e ({sa.get('points','N/D')} pts)\n\n"
+        f"• {home} : {pos_h} {pts_h}\n"
+        f"• {away} : {pos_a} {pts_a}\n\n"
         f"🎯 <b>Probabilités 1X2 :</b>\n"
         f"• Domicile (1) : <b>{h:.1f}%</b>\n"
         f"• Nul (X) : <b>{d:.1f}%</b>\n"
@@ -311,19 +319,19 @@ async def run_stats_for_message(message, fid):
     hf = data.get("home_form") or []
     af = data.get("away_form") or []
 
-    hf_str = " ".join(x.get("result", "?") for x in hf[-5:]) or "N/D"
-    af_str = " ".join(x.get("result", "?") for x in af[-5:]) or "N/D"
+    hf_str = " ".join(x.get("result", "?") for x in hf[-5:]) if hf else "Donnée indisponible"
+    af_str = " ".join(x.get("result", "?") for x in af[-5:]) if af else "Donnée indisponible"
 
     text = (
         f"📊 <b>STATISTIQUES & CLASSEMENT</b>\n"
         f"🆔 Match ID: <code>{fid}</code>\n\n"
         f"🏠 <b>Équipe Domicile :</b>\n"
-        f"• Rang : {sh.get('position','N/D')}e ({sh.get('points','N/D')} pts)\n"
+        f"• Rang : {sh.get('position','Donnée indisponible') if sh.get('position') else 'Donnée indisponible'} ({sh.get('points','0')} pts)\n"
         f"• Bilan : {sh.get('won',0)}V / {sh.get('draw',0)}N / {sh.get('lost',0)}D\n"
         f"• Buts : {sh.get('gf',0)} pour / {sh.get('ga',0)} contre\n"
         f"• Forme récente : <b>{hf_str}</b>\n\n"
         f"✈️ <b>Équipe Extérieure :</b>\n"
-        f"• Rang : {sa.get('position','N/D')}e ({sa.get('points','N/D')} pts)\n"
+        f"• Rang : {sa.get('position','Donnée indisponible') if sa.get('position') else 'Donnée indisponible'} ({sa.get('points','0')} pts)\n"
         f"• Bilan : {sa.get('won',0)}V / {sa.get('draw',0)}N / {sa.get('lost',0)}D\n"
         f"• Buts : {sa.get('gf',0)} pour / {sa.get('ga',0)} contre\n"
         f"• Forme récente : <b>{af_str}</b>"
@@ -352,7 +360,7 @@ async def run_buteur_for_message(message, fid):
 
     status = item.get("status")
     if status in {"SCHEDULED", "TIMED"}:
-        await send_or_edit(message, "⚽ <b>Match à venir : les événements seront disponibles après le coup d'envoi.</b>", match_keyboard(fid))
+        await send_or_edit(message, "⚽ <b>Match à venir.</b>\nLes événements seront disponibles après le coup d'envoi.", match_keyboard(fid))
         return
 
     if str(fid).startswith("TSDB-"):
@@ -360,11 +368,11 @@ async def run_buteur_for_message(message, fid):
         async with httpx.AsyncClient(timeout=8) as client:
             data, error = await tsdb_get(client, "lookuptimeline.php", {"id": eid}, f"tsdb:timeline:{eid}", 120)
         if error or not data:
-            await send_or_edit(message, f"❌ <b>{error or 'Erreur lors de la récupération'}</b>", match_keyboard(fid))
+            await send_or_edit(message, "⚽ <b>Aucun événement disponible pour ce match.</b>", match_keyboard(fid))
             return
         goals = [x for x in (data.get("timeline", []) or []) if "goal" in str(x.get("strTimeline", "")).lower()]
         if not goals:
-            await send_or_edit(message, "⚽ <b>Aucun événement de but disponible pour ce match.</b>", match_keyboard(fid))
+            await send_or_edit(message, "⚽ <b>Aucun événement disponible pour ce match.</b>", match_keyboard(fid))
             return
         msg = "⚽ <b>BUTS & ÉVÉNEMENTS :</b>\n\n" + "\n".join(f"• {g.get('strTimeline','But')} | {g.get('strPlayer','Joueur N/D')}" for g in goals[:15])
         await send_or_edit(message, msg, match_keyboard(fid))
@@ -372,7 +380,7 @@ async def run_buteur_for_message(message, fid):
 
     goals = item.get("goals", []) or []
     if not goals:
-        await send_or_edit(message, "👤 <b>Aucun événement de but disponible pour ce match.</b>", match_keyboard(fid))
+        await send_or_edit(message, "⚽ <b>Aucun événement disponible pour ce match.</b>", match_keyboard(fid))
         return
     msg = "👤 <b>BUTEURS & ÉVÉNEMENTS :</b>\n\n"
     for g in goals[:20]:
