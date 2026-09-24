@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  sport-analyzer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "10000:10000"
+    environment:
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - FOOTBALL_DATA_KEY=${FOOTBALL_DATA_KEY}
+      - API_FOOTBALL_KEY=${API_FOOTBALL_KEY}
+      - DB_PATH=sport_analyzer.db
+      - RENDER_EXTERNAL_URL=http://localhost:10000
+    volumes:
+      - ./data:/app/data

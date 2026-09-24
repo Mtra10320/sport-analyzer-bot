@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: sport-analyzer
+    env: docker
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: FOOTBALL_DATA_KEY
+        sync: false
+      - key: API_FOOTBALL_KEY
+        sync: false
+      - key: DB_PATH
+        value: sport_analyzer.db
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          type: web
+          name: sport-analyzer
+          property: host

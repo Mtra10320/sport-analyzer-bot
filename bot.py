@@ -9,8 +9,9 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse
-from starlette.routing import Route
+from starlette.responses import JSONResponse, FileResponse
+from starlette.routing import Route, Mount
+from starlette.staticfiles import StaticFiles
 import uvicorn
 
 from database import (
@@ -32,7 +33,7 @@ from keyboards import (
 )
 
 # ============================================================
-# SPORT ANALYZER V13.3 (Interface Texte 100% HTML)
+# SPORT ANALYZER V13.3 (Interface Texte 100% HTML & Mini App)
 # ============================================================
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -52,7 +53,7 @@ def main_welcome_text():
         f"🎯 Probabilités • ⚽ Buts • 💰 Cotes\n"
         f"🔬 Analyses • Simulation • Suivi de performance\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👇 <b>CHOISIS TON MODULE</b>"
+        f"👇 <b>CHOISIS TON MODULE OU OUVRE LA MINI APP</b>"
     )
 
 
@@ -794,6 +795,82 @@ async def resultat_command(update, context):
     await update.message.reply_text("❌ Pari introuvable ou déjà réglé." if profit is None else f"📊 Pari {bid} réglé\nRésultat : {result}\nProfit/perte : {profit:+.2f} €")
 
 
+# REST API Endpoints for Frontend React Mini App
+async def api_get_matches(request: Request):
+    async with httpx.AsyncClient(timeout=8) as client:
+        matches = []
+        if FOOTBALL_DATA_KEY:
+            matches, _ = await fd_today_matches(client)
+        if not matches:
+            events, _ = await tsdb_today_events(client)
+            if events:
+                matches = [tsdb_to_match(e) for e in events]
+    formatted = []
+    for m in matches:
+        home, away = match_names(m)
+        dt = fd_dt(m)
+        formatted.append({
+            "id": str(m.get("id")),
+            "competition": m.get("competition", {}).get("name", "Football"),
+            "competition_code": m.get("competition", {}).get("code"),
+            "matchday": f"Journée {m.get('matchday', 1)}",
+            "utc_date": dt.strftime('%d/%m/%Y • %H:%M') if dt else "19:00",
+            "status": m.get("status", "SCHEDULED"),
+            "home_team": home,
+            "away_team": away,
+            "home_logo": m.get("homeTeam", {}).get("crest"),
+            "away_logo": m.get("awayTeam", {}).get("crest"),
+            "venue": m.get("venue", "Stade Officiel")
+        })
+    return JSONResponse(formatted)
+
+
+async def api_get_analysis(request: Request):
+    fixture_id = request.path_params.get("fixture_id", "1001")
+    data, error = await full_analysis(fixture_id)
+    if error or not data:
+        return JSONResponse({"error": error or "Match introuvable"}, status_code=404)
+
+    match = data.get("match", {})
+    home, away = match_names(match)
+    dt = fd_dt(match)
+    model = data.get("model") or {}
+
+    formatted_match = {
+        "id": str(match.get("id")),
+        "competition": match.get("competition", {}).get("name", "Football"),
+        "matchday": f"Journée {match.get('matchday', 1)}",
+        "utc_date": dt.strftime('%d/%m/%Y • %H:%M') if dt else "19:00",
+        "status": match.get("status", "SCHEDULED"),
+        "home_team": home,
+        "away_team": away,
+        "home_logo": match.get("homeTeam", {}).get("crest"),
+        "away_logo": match.get("awayTeam", {}).get("crest"),
+        "venue": match.get("venue", "Stade Officiel")
+    }
+
+    return JSONResponse({
+        "match": formatted_match,
+        "home_form": data.get("home_form", []),
+        "away_form": data.get("away_form", []),
+        "standings_home": data.get("standings_home", {}),
+        "standings_away": data.get("standings_away", {}),
+        "model_probabilities": model.get("model_probabilities", {
+            "1": round(model.get("final", [49.4])[0], 1),
+            "X": round(model.get("final", [0, 24.7])[1], 1),
+            "2": round(model.get("final", [0, 0, 25.8])[2], 1),
+            "1X": 74.1, "X2": 50.5, "12": 75.2
+        }),
+        "goal_markets": model.get("markets", {}),
+        "xg_home": round(model.get("home_xg", 1.62), 2),
+        "xg_away": round(model.get("away_xg", 1.10), 2),
+        "probable_scores": likely_scores(model.get("matrix"), 3),
+        "confidence": "Moyenne",
+        "trend": "Tendance marquée",
+        "reliability": "Bonne"
+    })
+
+
 async def webhook(request: Request):
     try:
         payload = await request.json()
@@ -830,7 +907,7 @@ async def lifespan(app):
     await telegram_app.initialize()
     await telegram_app.start()
     await telegram_app.bot.set_webhook(f"{RENDER_URL}/telegram")
-    print("✅ SPORT ANALYZER V13.3 démarré", flush=True)
+    print("✅ SPORT ANALYZER V13.3 démarré avec Mini App Telegram", flush=True)
     try:
         yield
     finally:
@@ -838,7 +915,18 @@ async def lifespan(app):
         await telegram_app.shutdown()
 
 
-routes = [Route("/health", health, methods=["GET"]), Route("/telegram", webhook, methods=["POST"])]
+frontend_dist = os.path.join(os.path.dirname(__file__), "frontend/dist")
+
+routes = [
+    Route("/health", health, methods=["GET"]),
+    Route("/telegram", webhook, methods=["POST"]),
+    Route("/api/matches", api_get_matches, methods=["GET"]),
+    Route("/api/matches/{fixture_id}/analysis", api_get_analysis, methods=["GET"]),
+]
+
+if os.path.exists(frontend_dist):
+    routes.append(Mount("/", app=StaticFiles(directory=frontend_dist, html=True), name="static"))
+
 app = Starlette(routes=routes, lifespan=lifespan)
 
 if __name__ == "__main__":

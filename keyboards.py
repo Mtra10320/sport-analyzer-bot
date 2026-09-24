@@ -1,15 +1,15 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+import os
+
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL", "http://localhost:10000")
 
 
 def main_menu():
     """
-    INTERFACE PRINCIPALE - GRILLE 2 COLONNES
-    ⚽ MATCHS DU JOUR | 🎯 ANALYSE
-    📊 PERFORMANCE   | 💰 BANKROLL
-    🔬 SIMULATEUR    | 🔄 VALIDATION
-    🔌 SOURCES       | ❓ AIDE
+    INTERFACE PRINCIPALE - GRILLE 2 COLONNES + MINI APP
     """
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 OUVRIR SPORT ANALYZER (MINI APP)", web_app=WebAppInfo(url=RENDER_URL))],
         [InlineKeyboardButton("⚽ MATCHS DU JOUR", callback_data="menu:match"), InlineKeyboardButton("🎯 ANALYSE", callback_data="menu:tools")],
         [InlineKeyboardButton("📊 PERFORMANCE", callback_data="menu:performance"), InlineKeyboardButton("💰 BANKROLL", callback_data="menu:bankroll")],
         [InlineKeyboardButton("🔬 SIMULATEUR", callback_data="menu:sim"), InlineKeyboardButton("🔄 VALIDATION", callback_data="menu:validation")],
@@ -18,9 +18,6 @@ def main_menu():
 
 
 def match_list_keyboard(matches):
-    """
-    LISTE DES MATCHS - UN BOUTON PAR MATCH
-    """
     rows = []
     for item in matches[:15]:
         fid = item.get("id")
@@ -33,13 +30,6 @@ def match_list_keyboard(matches):
 
 
 def match_keyboard(fid):
-    """
-    MATCH SÉLECTIONNÉ - GRILLE 2 COLONNES
-    🔎 ANALYSE   | 🎯 PROBABILITÉS
-    ⚽ BUTS      | 💰 COTES
-    ⚽ BUTEURS   | 🔬 SIMULER
-    ⬅️ MATCHS    | 🏠 ACCUEIL
-    """
     fid = str(fid)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔎 ANALYSE", callback_data=f"analyse:{fid}"), InlineKeyboardButton("🎯 PROBABILITÉS", callback_data=f"prob:{fid}")],
@@ -50,14 +40,6 @@ def match_keyboard(fid):
 
 
 def analysis_menu_keyboard(fid):
-    """
-    SOUS-MENU ANALYSE - GRILLE 2 COLONNES
-    🎯 1X2       | 🔄 Double chance
-    ⚽ Buts      | 📊 Statistiques
-    ⚽ Buteurs   | 💰 Cotes
-    🔬 Simulateur| ⬅️ RETOUR
-    🏠 ACCUEIL
-    """
     fid = str(fid)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎯 1X2", callback_data=f"prob:{fid}"), InlineKeyboardButton("🔄 Double chance", callback_data=f"prob:{fid}")],
@@ -69,12 +51,6 @@ def analysis_menu_keyboard(fid):
 
 
 def simulator_keyboard(fid):
-    """
-    SIMULATEUR - GRILLE 2 COLONNES
-    🎯 1X2       | 🔄 Double chance
-    ⚽ BTTS      | 📈 Over / Under
-    ⬅️ RETOUR   | 🏠 ACCUEIL
-    """
     fid = str(fid)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎯 1X2", callback_data=f"market:{fid}:1X2"), InlineKeyboardButton("🔄 Double chance", callback_data=f"market:{fid}:DC")],
